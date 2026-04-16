@@ -69,6 +69,7 @@ def get_relevant_stock(query, category):
                 filtered_df = filtered_df[match_mask]
                 has_match = True
     
+    # [방어 로직] 관련 매물 없으면 해당 카테고리 비싼 순으로 3개, 있으면 싼 순으로 3개만!
     if not has_match:
         return cat_df.sort_values(by='판매가', ascending=False).head(3), "alternative"
     
@@ -98,10 +99,10 @@ if user_query := st.chat_input("점장님에게 편하게 물어보세요!"):
         
         # 카테고리 판단
         current_cat = None
-        if any(kw in q_clean for kw in ["폰", "아이폰"]): current_cat = "아이폰"
+        if any(kw in q_clean for kw in ["폰", "아이폰", "핸드폰", "스마트폰"]): current_cat = "아이폰"
         elif any(kw in q_clean for kw in ["맥북", "노트북"]): current_cat = "맥북"
-        elif any(kw in q_clean for kw in ["패드", "아이패드"]): current_cat = "아이패드"
-        elif any(kw in q_clean for kw in ["워치", "애플워치"]): current_cat = "애플워치"
+        elif any(kw in q_clean for kw in ["패드", "아이패드", "태블릿"]): current_cat = "아이패드"
+        elif any(kw in q_clean for kw in ["워치", "애플워치", "스마트워치"]): current_cat = "애플워치"
         if current_cat: st.session_state.last_category = current_cat
 
         trade_keywords = ["추천", "가성비", "시세", "얼마", "가격", "사양", "카메라", "게임", "배터리", "운동", "작업", "저렴", "싼", "있어"]
@@ -130,8 +131,16 @@ if user_query := st.chat_input("점장님에게 편하게 물어보세요!"):
         else:
             with st.spinner("점장님이 매물을 선별하고 있습니다..."):
                 stock_result, response_type = get_relevant_stock(user_query, st.session_state.last_category)
-                stock_list = stock_result.to_dict('records')
-                for item in stock_list:
+
+                # --- 데이터 가공 (표 출력용 display_df) ---
+                display_df = stock_result.copy()
+                if '배터리' in display_df.columns:
+                    display_df['배터리'] = pd.to_numeric(display_df['배터리'], errors='coerce')
+                    display_df['배터리'] = display_df['배터리'].apply(lambda x: f"{int(x * 100)}%" if pd.notnull(x) and x <= 1 else (f"{int(x)}%" if pd.notnull(x) else "정보없음"))
+                
+                # --- 가격 콤마 표기 가공 ---
+                stock_list_for_ai = display_df.to_dict('records')
+                for item in stock_list_for_ai:
                     item['판매가_표기'] = "{:,}".format(int(item.get('판매가', 0)))
 
                 # AI 점장 큐레이션 특화 지침
@@ -139,7 +148,7 @@ if user_query := st.chat_input("점장님에게 편하게 물어보세요!"):
                     {"role": "system", "content": f"""너는 보상나라의 10년 경력 베테랑 점장이야. 
                     제공된 [실시간 재고] 데이터의 '점장 큐레이션 (추천포인트)'과 '권장용도'를 반드시 활용해서 전문가답게 추천해줘.
                     손님에게 옆에서 설명해주는 것처럼 친근하고 신뢰감 있게 말해줘.
-                    [실시간 재고]: {stock_list}
+                    [실시간 재고]: {stock_list_for_ai}
                     [응답 유형]: {response_type}"""}
                 ]
                 for msg in st.session_state.messages[-3:]:
@@ -159,8 +168,8 @@ if user_query := st.chat_input("점장님에게 편하게 물어보세요!"):
         
         if is_trade_talk and not stock_result.empty:
             with st.expander("📦 추천 상품 목록 확인하기"):
-                # 엑셀의 실제 컬럼명에 맞춰 안전하게 출력
-                display_cols = [c for c in ['상품명 (정제형)', '등급', '판매가_표기', '배터리', '권장용도'] if c in stock_result.columns]
-                st.dataframe(stock_result[display_cols])
+                # 가공된 display_df를 사용하여 % 기호가 나오도록 함
+                display_cols = [c for c in ['상품명 (정제형)', '등급', '판매가_표기', '배터리', '권장용도'] if c in display_df.columns]
+                st.dataframe(display_df[display_cols])
 
         st.session_state.messages.append({"role": "assistant", "content": response})
