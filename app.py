@@ -6,19 +6,27 @@ from groq import Groq
 st.set_page_config(page_title="보상나라 AI 점장님", layout="wide")
 st.title("💻 보상나라 AI 점장님 실시간 상담")
 
-# --- [중요] Groq API 키 설정 ---
-# 깃허브에 올릴 때 보안을 위해 streamlit의 secrets 기능을 사용합니다.
-# 로컬 테스트 시에는 Groq 사이트에서 받은 키를 아래 " " 안에 잠시 넣으셔도 되지만,
-# 깃허브에 올리기 전에는 반드시 아래처럼 st.secrets 코드로 복구해 주세요.
+# --- 2. 사이드바 등급 안내 (상시 노출) ---
+with st.sidebar:
+    st.header("✨ 보상나라 등급 기준")
+    st.markdown("""
+    - **S 등급**: 신품급! 선물용 강추! 🎁
+    - **A 등급**: 깔끔함. 미세 흔적, 가성비 최고 ✨
+    - **B 등급**: 생활 기스 있음. 기능은 완벽 💯
+    - **가성비**: 찍힘 등 외관 흔적 있음 (실속파) 💪
+    - **진열상품**: 매장 전시용. 배터리 효율 최상 🚀
+    """)
+    st.divider()
+    st.info("💡 '아이폰 13 A급 추천해줘'라고 물어보세요!")
+
+# --- 3. Groq API 및 데이터 로드 ---
 try:
     GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 except:
-    # 로컬 테스트용
-    GROQ_API_KEY = ""
+    GROQ_API_KEY = "" # 로컬 테스트용
 
 client = Groq(api_key=GROQ_API_KEY)
 
-# --- 2. 데이터 로드 ---
 @st.cache_data
 def load_inventory():
     file_name = "inventory.xlsx"
@@ -33,6 +41,7 @@ def load_inventory():
 
 df = load_inventory()
 
+# --- 4. 재고 검색 로직 ---
 def get_relevant_stock(query, category):
     if df is None: return [], "none"
     cat_df = df[df['카테고리'].str.contains(category, na=False)].copy()
@@ -53,19 +62,20 @@ def get_relevant_stock(query, category):
             has_match = True
 
     for word in q_words:
-        if len(word) > 0 and word not in usage_keywords + ["가장", "저렴한", "추천", "S등급", "A등급", "B등급", "S급", "A급", "B급"]:
+        if len(word) > 1 and word not in usage_keywords + ["가장", "저렴한", "추천", "용도", "보여줘"]:
             match_mask = filtered_df[target_col].str.contains(word, case=False, na=False)
             if match_mask.any():
                 filtered_df = filtered_df[match_mask]
                 has_match = True
     
     if not has_match and not is_usage_search:
-        return cat_df.sort_values(by='판매가', ascending=False).head(5), "alternative"
+        return cat_df.sort_values(by='판매가', ascending=False).head(3), "alternative"
     
     sort_asc = any(kw in query for kw in ["저렴", "싼", "최저가", "가성비"])
     final_df = filtered_df if not filtered_df.empty else cat_df
-    return final_df.sort_values(by='판매가', ascending=sort_asc).head(5), "recommend"
+    return final_df.sort_values(by='판매가', ascending=sort_asc).head(3), "recommend"
 
+# --- 5. 대화 내역 관리 ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "last_category" not in st.session_state:
@@ -75,6 +85,7 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
+# --- 6. 실시간 상담 프로세스 ---
 if user_query := st.chat_input("점장님에게 편하게 물어보세요!"):
     st.session_state.messages.append({"role": "user", "content": user_query})
     with st.chat_message("user"):
@@ -83,8 +94,10 @@ if user_query := st.chat_input("점장님에게 편하게 물어보세요!"):
     with st.chat_message("assistant"):
         q_clean = user_query.replace(" ", "")
         
+        # 등급 기준 질문 여부 확인
         is_pure_grade_query = any(kw in q_clean for kw in ["등급기준", "등급이뭐야", "상태차이"]) and not any(kw in q_clean for kw in ["추천", "저렴", "싼", "있어", "보여줘"])
         
+        # 카테고리 판단
         current_cat = None
         if any(kw in q_clean for kw in ["폰", "아이폰"]): current_cat = "아이폰"
         elif any(kw in q_clean for kw in ["맥북", "노트북"]): current_cat = "맥북"
@@ -92,31 +105,64 @@ if user_query := st.chat_input("점장님에게 편하게 물어보세요!"):
         elif any(kw in q_clean for kw in ["워치", "애플워치"]): current_cat = "애플워치"
         if current_cat: st.session_state.last_category = current_cat
 
+        # 상담 대화 여부 판단
         trade_keywords = ["추천", "가성비", "시세", "얼마", "가격", "사양", "사진", "카메라", "화질", "게임", "배터리", "운동", "작업", "넷플릭스", "저렴", "싼", "프로그래밍", "개발", "편집", "인강", "과제"]
         is_trade_talk = current_cat is not None or any(kw in q_clean for kw in trade_keywords) or any(kw in q_clean for kw in ["S급", "A급", "B급", "등급"])
 
+        # ---------------------------------------------------------
+        # [핵심 로직] 질문 유형별 답변 생성
+        # ---------------------------------------------------------
         if is_pure_grade_query:
-            response = """고객님! 보상나라의 꼼꼼한 등급 기준이 궁금하시군요? 😊\n\n✨ **보상나라 등급 기준 안내**\n* **S 등급**: 신품급! 선물용 강추! 🎁\n* **A 등급**: 깔끔함. 미세 흔적 있지만 가성비 최고 ✨\n* **B 등급**: 생활 기스 있음. 기능은 완벽 💯\n* **가성비**: 찍힘 등 외관 흔적 있음. (실속파용) 💪\n* **진열상품**: 매장 전시용. 배터리 효율 최상 🚀"""
+            response = """고객님! 보상나라의 꼼꼼한 등급 기준이 궁금하시군요? 😊  
+✨ **보상나라 등급 기준 안내**
+* **S 등급**: 신품급! 선물용 강추! 🎁
+* **A 등급**: 깔끔함. 미세 흔적 있지만 가성비 최고 ✨
+* **B 등급**: 생활 기스 있음. 기능은 완벽 💯
+* **가성비**: 찍힘 등 외관 흔적 있음. (실속파용) 💪
+* **진열상품**: 매장 전시용. 배터리 효율 최상 🚀"""
+
         elif not is_trade_talk:
-            response = "어이쿠, 고객님! 제가 그 부분은 아직 답변이 어려워요 😅\n\n아이폰/맥북 추천이나 시세, 등급 기준에 대해 물어봐주세요!"
+            # 대표님이 찾으셨던 그 가이드 멘트 복구!
+            response = """어이쿠, 고객님! 제가 그 부분은 아직 답변이 어려워요 😅  
+전자기기 추천이나 시세, 등급 기준에 대해 물어봐주시면 점장님이 정성을 다해 대답해 드릴게요!
+
+---
+1. "사진 잘 나오는 **아이폰** 추천해줘" 📸
+2. "인강/과제용 가성비 **맥북** 있어?" 💻
+3. "운동할 때 쓸 **애플워치** 추천해줘" ⌚
+4. "보상나라 **등급 기준**이 궁금해!" 📋
+---"""
+
         else:
-            with st.spinner("점장님이 매물을 선별하고 있습니다..."):
+            with st.spinner("점장님이 매물을 고르고 있습니다..."):
                 stock_result, response_type = get_relevant_stock(user_query, st.session_state.last_category)
                 stock_list = stock_result.to_dict('records')
                 for item in stock_list:
                     item['판매가_표기'] = "{:,}".format(int(item.get('판매가', 0)))
 
-                # Groq을 이용한 답변 생성 (Gemma 2 9b 모델 사용)
-                completion = client.chat.completions.create(
-                    model="gemma2-9b-it",
-                    messages=[
-                        {"role": "system", "content": f"너는 보상나라의 베테랑 점장이야. [상황 분석]: 응답 유형 {response_type}, 고객 질문 {user_query}. 실시간 재고 데이터 {stock_list}를 바탕으로 고객 질문 의도에 딱 맞는 맞춤형 큐레이션을 제공해. 엑셀의 큐레이션은 참고만 하고 네가 직접 용도에 맞춰서 작성해. 재고에 없는 정보는 절대 지어내지 마."},
-                        {"role": "user", "content": user_query}
-                    ],
-                    temperature=0.7,
-                )
-                ai_output = completion.choices[0].message.content
-                response = ai_output.replace("#", "").replace("\n", "\n\n")
+                # Groq용 문맥 구성
+                chat_context = [
+                    {"role": "system", "content": f"너는 보상나라의 베테랑 점장이야. [실시간 재고]: {stock_list}. 재고에 없는 정보는 절대 지어내지 말고, 응답 유형({response_type})에 맞춰 친절하게 추천해줘."}
+                ]
+                for msg in st.session_state.messages[-3:]:
+                    chat_context.append(msg)
 
+                try:
+                    completion = client.chat.completions.create(
+                        model="gemma-2-9b-it",
+                        messages=chat_context,
+                        temperature=0.7,
+                    )
+                    response = completion.choices[0].message.content
+                except Exception as e:
+                    response = f"죄송합니다, 잠시 통신 에러가 발생했어요. 다시 시도해 주세요! (에러: {e})"
+
+        # 최종 출력
         st.markdown(response)
+        
+        # 추천 상품이 있는 경우 표로 추가 제공
+        if is_trade_talk and not stock_result.empty:
+            with st.expander("📦 추천 상품 목록 확인하기"):
+                st.dataframe(stock_result[['상품명', '등급', '판매가_표기', '배터리 상태']])
+
         st.session_state.messages.append({"role": "assistant", "content": response})
