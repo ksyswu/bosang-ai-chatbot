@@ -52,7 +52,7 @@ with st.sidebar:
 - **진열상품**: 매장 전시용. 배터리 최상 🚀
     """)
 
-# 못 알아들었을 때만 보여줄 가이드
+# [질문 제안 리스트] - 못 알아들었을 때 및 초기 화면용
 guide_text = """
 **💡 이렇게 물어보시면 빨라요!**
 - "인강용 **저렴한 아이패드** 추천해줘"
@@ -60,12 +60,19 @@ guide_text = """
 - "**운동용 애플워치** 추천해줘"
 """
 
+# 채팅 로그 출력
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if "df" in msg and msg["df"] is not None:
             with st.expander("📊 추천 모델 상세 사양 확인하기", expanded=True):
                 st.table(msg["df"])
+
+# [최초 접속 시 인사말 자동 출력]
+if not st.session_state.messages:
+    welcome_msg = f"반갑습니다! 보상나라 점장입니다. 😊 어떤 기기를 찾으시나요? 장부에서 상태 좋고 가격 착한 녀석들로 딱 골라드릴게요!  \n{guide_text}"
+    st.session_state.messages.append({"role": "assistant", "content": welcome_msg, "df": None})
+    st.rerun()
 
 # --- [4] 메인 상담 로직 ---
 if user_input := st.chat_input("질문을 입력하세요!"):
@@ -82,7 +89,7 @@ if user_input := st.chat_input("질문을 입력하세요!"):
         watch_kw = ["워치", "시계", "애플워치"]
         context_kw = ["편집", "용도", "사용", "적합", "인강", "학교", "성능", "게임", "프로그래밍", "개발", "그림", "드로잉", "가능", "돼", "될까"]
 
-        # A. 등급 기준 질문 (가이드 없음)
+        # A. 등급 기준 질문 (가이드 노출 없음)
         if any(kw in q_clean for kw in grade_kw) and not any(kw in q_clean for kw in (laptop_kw + phone_kw + pad_kw + watch_kw + context_kw)):
             response = """보상나라의 등급 기준을 안내해 드립니다! 😊
 
@@ -90,11 +97,11 @@ if user_input := st.chat_input("질문을 입력하세요!"):
 **A 등급**: 흠집 없이 깔끔함 (인기 최고)  
 **B 등급**: 미세 생활 기스 (실속형)  
 **가성비**: 기능 정상, 외관 기스 있음  
-**진열상품**: 전시 모델, 배터리 최상급"""
+**진열상품**: 전시 모델, 배터리 상태 최상"""
             st.session_state.is_in_consult = False
             final_df = None
 
-        # B. 제품 추천 상담 (가이드 없음)
+        # B. 제품 추천 상담 (가이드 노출 없음)
         elif any(kw in q_clean for kw in (laptop_kw + phone_kw + pad_kw + watch_kw + context_kw)):
             st.session_state.is_in_consult = True
             with st.spinner("장부 확인 중..."):
@@ -112,12 +119,14 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                 
                 sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 
-                1. 원칙: 장부 데이터({stock_list})에 기반해서 '단일 모델'을 주인공으로 추천해.
-                2. 상향판매: 손님의 용도에 성능이 부족하면, 재고 내 더 고사양 모델을 근거와 함께 제안해.
-                3. 말투: 구어체 사용. '카테고리:', '권장용도:' 같은 DB 표현 절대 금지. 점장이 직접 말하듯 추론해서 설명해.
-                4. 가독성: 큰 제목(#) 금지. 굵게(**)와 줄바꿈을 활용해.
-                5. 정직: 재고에 없는 모델은 절대 지어내지 마.
-                6. 맥락: "그건 돼?" 질문 시 이전 대화를 기억해서 대답해."""
+                
+                [상담 지침]
+                1. 원픽 & 논리적 상향판매: 손님의 용도에 현재 모델이 부족하면, 재고 리스트({stock_list}) 내의 고사양 모델을 '왜' 더 나은지 사양을 비교하며 제안해.
+                2. 모순 금지: 문장 간에 앞뒤가 안 맞는 말을 하지 마. (예: 16G가 충분하다면서 갑자기 32G가 필요하다는 식의 모순)
+                3. 데이터 무결성: [실제 재고 데이터]에 없는 모델이나 사양을 절대 지어내지 마. (환각 금지)
+                4. 용어 박멸: '카테고리:', '권장용도:' 등 DB 필드명 노출 절대 금지.
+                5. 가독성: 큰 제목(#) 사용 금지. 굵게(**)와 줄바꿈을 활용해 점장 말투로 써.
+                6. 문맥 유지: 이전 대화 내용을 기억해서 대답해."""
 
                 res = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
@@ -129,9 +138,9 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 response = res.replace("\n", "  \n")
                 final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리_표기']].reset_index(drop=True)
                 
-        # C. 질문을 못 알아들었을 때 (가이드 포함)
+        # C. 질문을 못 알아들었을 때 (가이드 노출)
         else:
-            response = f"반갑습니다! 보상나라 점장입니다. 😊 어떤 기기를 찾으시나요? 장부에서 가장 좋은 녀석들로 딱 골라드릴게요!  \n{guide_text}"
+            response = f"죄송합니다, 손님! 질문을 정확히 이해하지 못했어요. 아래 예시처럼 말씀해주시면 장부에서 바로 찾아드릴게요!  \n{guide_text}"
             st.session_state.is_in_consult = False
             final_df = None
 
