@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from groq import Groq
 
-# --- [1] 페이지 설정 및 제목 ---
+# --- [1] 페이지 설정 및 제목 (기존 유지) ---
 st.set_page_config(page_title="보상나라 AI 점장님", layout="wide")
 
 st.markdown("""
@@ -14,9 +14,9 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.markdown('<p class="main-title">💻 보상나라 AI 점장님 실시간 상담</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-title">정직이 최우선! 보상나라는 실제 보유 중인 재고만 투명하게 안내합니다. ✨</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">정직한 점장님이 끝까지 책임지는 상담! 장부의 실재고만 정확히 추천합니다. ✨</p>', unsafe_allow_html=True)
 
-# --- [2] 데이터 로드 ---
+# --- [2] 데이터 로드 (기존 유지) ---
 @st.cache_data
 def load_inventory():
     file_name = "inventory.xlsx" 
@@ -34,15 +34,15 @@ def load_inventory():
 
 df = load_inventory()
 
-# --- [3] 세션 상태 관리 ---
+# --- [3] 세션 상태 관리 (맥락 유지의 핵심) ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "last_category" not in st.session_state:
     st.session_state.last_category = "아이폰"
-if "waiting_for_purpose" not in st.session_state:
-    st.session_state.waiting_for_purpose = False
+if "is_in_consult" not in st.session_state:
+    st.session_state.is_in_consult = False # 상담 중인지 여부
 
-# --- [4] 사이드바 (등급 기준) ---
+# --- [4] 사이드바 (등급 기준 고정) ---
 with st.sidebar:
     st.header("✨ 보상나라 등급 기준")
     st.markdown("""
@@ -53,7 +53,7 @@ with st.sidebar:
     - **진열상품**: 매장 전시용. 배터리 효율 최상 🚀  
     """)
 
-# 이전 대화 렌더링
+# 이전 대화 출력
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -61,7 +61,7 @@ for msg in st.session_state.messages:
             with st.expander("📊 추천 모델 상세 사양 확인하기"):
                 st.table(msg["df"])
 
-# --- [5] 메인 상담 로직 ---
+# --- [5] 메인 상담 로직 (보완 완료) ---
 if user_input := st.chat_input("질문을 입력하세요!"):
     st.session_state.messages.append({"role": "user", "content": user_input})
     st.chat_message("user").write(user_input)
@@ -69,82 +69,82 @@ if user_input := st.chat_input("질문을 입력하세요!"):
     with st.chat_message("assistant"):
         q_clean = user_input.replace(" ", "").lower()
         
-        # 키워드 정의
+        # 키워드 체계화
         grade_kw = ["등급", "기준", "상태"]
         laptop_kw = ["맥북", "노트북", "컴퓨터", "랩탑"]
-        phone_kw = ["폰", "아이폰", "갤럭시"]
+        phone_kw = ["폰", "아이폰", "갤럭시", "핸드폰"]
         pad_kw = ["패드", "아이패드", "태블릿"]
-        trade_kw = ["추천", "얼마", "재고", "저렴", "싼", "가성비", "금액", "가격", "있어", "있나요"]
+        # 상담 지속 및 구체화 키워드
+        action_kw = ["추천", "얼마", "재고", "저렴", "싼", "가성비", "금액", "가격", "있어", "있나요"]
+        context_kw = ["편집", "용도", "사용", "적합", "맞아", "응", "어", "괜찮", "좋아", "가능", "수도", "더", "무게", "배터리"]
 
-        # 의도 분류
-        is_grade_query = any(kw in q_clean for kw in grade_kw) and not any(kw in q_clean for kw in trade_kw)
-        is_recommend_talk = any(kw in q_clean for kw in (laptop_kw + phone_kw + pad_kw + trade_kw)) or st.session_state.waiting_for_purpose
+        # [의도 판단 로직]
+        # 1. 등급만 묻는 경우
+        is_grade_query = any(kw in q_clean for kw in grade_kw) and not any(kw in q_clean for kw in (action_kw + context_kw))
+        
+        # 2. 제품 추천 또는 대화 지속 상황
+        is_recommend_talk = any(kw in q_clean for kw in (laptop_kw + phone_kw + pad_kw + action_kw)) or \
+                            (st.session_state.is_in_consult and any(kw in q_clean for kw in context_kw))
 
         response = ""
         final_df = None
 
-        # CASE 1: 순수 등급 문의
         if is_grade_query:
-            response = "보상나라 등급 기준을 안내해 드립니다. 😊\n\n- **S 등급**: 신품급 선물용 🎁\n- **A 등급**: 가성비 최고 ✨\n- **B 등급**: 실속형 💯\n- **가성비/진열**: 가격 혜택 극대화 💪\n\n찾으시는 모델이 있으신가요?"
-            st.session_state.waiting_for_purpose = False
+            response = "보상나라의 등급 기준입니다! 😊\n\n- **S 등급**: 신품급\n- **A 등급**: 가성비 최고\n- **B 등급**: 실속형\n- **가성비/진열**: 실속파 최선택\n\n원하시는 모델이 있으신가요?"
+            st.session_state.is_in_consult = False
 
-        # CASE 2: 제품 추천 및 상담
         elif is_recommend_talk:
-            with st.spinner("점장님이 장부를 확인 중입니다..."):
-                # 카테고리 업데이트
+            st.session_state.is_in_consult = True
+            with st.spinner("장부를 확인하고 있습니다..."):
+                # 카테고리 고정 및 업데이트
                 if any(kw in q_clean for kw in laptop_kw): st.session_state.last_category = "맥북"
                 elif any(kw in q_clean for kw in phone_kw): st.session_state.last_category = "아이폰"
                 elif any(kw in q_clean for kw in pad_kw): st.session_state.last_category = "아이패드"
                 
                 cat_df = df[df['카테고리'].str.contains(st.session_state.last_category, na=False)].copy()
                 
-                # "더 저렴한/가성비" 요청 시 정렬
+                # 정렬 및 필터링
                 if any(kw in q_clean for kw in ["저렴", "싼", "가성비", "더"]):
-                    stock_result = cat_df.sort_values(by='판매가', ascending=True).head(2)
+                    stock_result = cat_df.sort_values(by='판매가').head(2)
                 else:
-                    search_word = user_input.split()[0] if not st.session_state.waiting_for_purpose else ""
+                    search_word = user_input.split()[0] if len(user_input.split()) > 0 else ""
                     target_stock = cat_df[cat_df['상품명 (정제형)'].str.contains(search_word, case=False, na=False)] if search_word else pd.DataFrame()
                     stock_result = target_stock.head(2) if not target_stock.empty else cat_df.head(2)
                 
                 stock_list = stock_result.to_dict('records')
                 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+                sys_prompt = f"""너는 '보상나라' 점장이야. 
+                [상담 절대 원칙]
+                1. 팩트 중시: 출시된 제품(아이폰 17 등)은 "매장 장부에 없다"고 정직하게 말해. 절대 "출시 전"이라 거짓말하지 마.
+                2. 맥락 유지: 고객이 "편집도 가능해?"라고 물으면, 이전 대화에서 말한 {st.session_state.last_category}를 주어로 삼아 답변해.
+                3. 자연스러운 문체: "~은 적합합니다" 같은 로봇 말투 금지. "편집도 거뜬하죠", "가벼워서 들고 다니기 딱입니다" 같은 구어체를 써.
+                4. 기계적 마무리 삭제: "관심 있으신가요?" 멘트를 매 답변마다 붙이지 마. 
+                5. 재고 일치: 추천하는 기기는 반드시 아래 [실재고 데이터]에 있는 것이어야 해.
+                6. 필드명(카테고리:, 판매가:) 노출 금지.
                 
-                # [강화된 전문가 프롬프트 - 팩트 체크 및 멘트 정제]
-                sys_prompt = f"""너는 '보상나라'의 베테랑 점장이야. 
-                [상담 원칙]
-                1. 팩트 기반 상담: 아이폰 17 등 출시된 모델에 대해 "출시 전"이라는 거짓말을 절대 하지 마. 
-                   "현재 저희 매장 장부에는 해당 재고가 없습니다"라고 정직하게 말한 뒤, [실재고]에서 대안을 추천해.
-                2. 기계적 멘트 금지: "관심 있으신가요?", "최고의 선택입니다" 같은 상투적인 문구를 남발하지 마. 
-                   대신 제품의 특징(배터리 수명, 휴대성 등)을 짚어주며 점장으로서의 의견을 전달해.
-                3. 일관성 유지: 텍스트로 추천하는 모델은 반드시 아래 [오늘의 실재고] 데이터에 있는 모델이어야 해.
-                4. 가성비 요청 대응: 고객이 더 싼 걸 찾으면, 장부에서 가장 가격이 낮은 모델의 장점을 찾아 설득해.
-                5. 필드명(카테고리:, 판매가:) 노출 절대 금지.
-                
-                [오늘의 실재고]: {stock_list}"""
+                [오늘의 실제 재고]: {stock_list}"""
 
                 res = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[{"role": "system", "content": sys_prompt}] + 
                              [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-5:]],
-                    temperature=0.3
+                    temperature=0.4
                 ).choices[0].message.content
                 
                 response = res.replace("\n", "  \n")
                 final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리_표기']].reset_index(drop=True)
 
-        # CASE 3: 무의미한 입력 가이드 (누락 복구)
         else:
             response = """고객님, 말씀하신 내용을 점장님이 이해하지 못했어요. 😅  
-점장님에게 이렇게 물어보시면 딱 맞는 제품을 바로 찾아드릴 수 있습니다!
             
----
-**💡 점장님 추천 질문 리스트**
-1. "인강용 **저렴한 맥북** 있어?" 💻
-2. "**아이폰 15 Pro** 재고 확인해줘" 📸
-3. "보상나라 **등급 기준**이 뭐야?" 📋
----"""
+**💡 점장님에게 이렇게 물어보시면 빨라요!**
+- "인강용 **저렴한 맥북** 있어?" 💻
+- "**아이폰 15 Pro** 재고 확인해줘" 📸
+- "보상나라 **등급 기준**이 뭐야?" 📋"""
+            st.session_state.is_in_consult = False
 
+        # 최종 출력
         st.markdown(response)
         if final_df is not None:
             with st.expander("📊 추천 모델 상세 사양 확인하기"):
