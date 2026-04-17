@@ -135,4 +135,39 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 1. 100% 팩트 가격: [오늘의 실제 재고]에 있는 '판매가_표기'를 텍스트로 당당히 언급해. 절대 지어내지 마.
                 2. 질문 리스트 제안: 답변 마지막에 반드시 손님이 클릭하거나 물어보기 좋은 예시 질문 2~3개를 "**💡 이렇게 물어보세요!**" 섹션으로 넣어줘.
                 3. 로봇 멘트 금지: "다음 질문을 고려해보세요" 같은 딱딱한 말투 금지. "점장인 제가 추천드리는 다음 단계는요~"처럼 자연스럽게 제안해.
-                4. 대
+                4. 대안 추천: {current_cat} 재고가 없으면(is_alternative=True), 운동/휴대 등 용도에 맞춰 아이폰을 노련하게 추천해.
+                5. 허구 지연 차단: 무게, 사진 촬영, 입고일정 등 네가 알 수 없는 정보는 절대 확답하지 마.
+
+                [오늘의 실제 재고 데이터]:
+                {stock_list}
+                [대안 추천 여부]: {is_alternative}"""
+
+                res = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "system", "content": sys_prompt}] + 
+                             [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-5:]],
+                    temperature=0.0 # 환각 방지용 온도
+                ).choices[0].message.content
+                
+                response = res.replace("\n", "  \n")
+                final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리_표기']].reset_index(drop=True)
+                
+        else:
+            # 기본 대기 상태 (질문 가이드 포함)
+            response = """반갑습니다! 보상나라 점장입니다. 😊  
+어떤 기기를 찾으시나요? 장부에서 가장 상태 좋고 가성비 넘치는 녀석으로 골라드릴게요!
+
+**💡 점장님에게 이렇게 물어보시면 빨라요!**
+- "인강용 **저렴한 아이패드** 추천해줘" 💻
+- "**아이폰 15 Pro** S급 재고 있어?" 📸
+- "보상나라 **등급 기준** 알려줘" 📋"""
+            st.session_state.is_in_consult = False
+            final_df = None
+
+        st.markdown(response)
+        if final_df is not None:
+            with st.expander("📊 추천 모델 상세 사양 확인하기", expanded=True):
+                st.table(final_df)
+            st.session_state.messages.append({"role": "assistant", "content": response, "df": final_df})
+        else:
+            st.session_state.messages.append({"role": "assistant", "content": response, "df": None})
