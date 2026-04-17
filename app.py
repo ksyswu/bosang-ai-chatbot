@@ -28,90 +28,92 @@ if "last_category" not in st.session_state:
 if "waiting_for_purpose" not in st.session_state:
     st.session_state.waiting_for_purpose = False
 
-# --- 3. 사이드바 ---
-with st.sidebar:
-    st.header("✨ 보상나라 등급 기준")
-    st.markdown("- **S 등급**: 신품급! 🎁  \n- **A 등급**: 미세 흔적 ✨  \n- **B 등급**: 생활 기스 💯")
-
-# 이전 대화 렌더링
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-        if "df" in msg: st.dataframe(msg["df"])
-
-# --- 4. 메인 상담 로직 ---
+# --- 3. 메인 상담 로직 ---
 if user_input := st.chat_input("질문을 입력하세요!"):
     st.session_state.messages.append({"role": "user", "content": user_input})
     st.chat_message("user").write(user_input)
 
     with st.chat_message("assistant"):
-        q_clean = user_input.replace(" ", "")
+        q_clean = user_input.replace(" ", "").lower()
         
-        # 키워드 분류
-        watch_kw, phone_kw = ["워치", "애플워치"], ["폰", "아이폰"]
-        mac_kw, pad_kw = ["맥북", "노트북"], ["패드", "아이패드"]
-        trade_kw = ["추천", "가성비", "가격", "있어", "재고", "얼마", "저렴", "싼"]
-        purpose_kw = ["유튜브", "게임", "작업", "인강", "일상", "촬영", "세컨", "운동", "필기"]
-
-        user_already_stated_purpose = any(kw in user_input for kw in purpose_kw)
-        is_recommend_talk = any(kw in user_input for kw in (trade_kw + watch_kw + phone_kw + mac_kw + pad_kw))
-        is_reply = st.session_state.waiting_for_purpose and len(q_clean) >= 2
+        # [의도 분석 키워드]
+        category_kw = ["폰", "아이폰", "패드", "아이패드", "워치", "맥북", "노트북"]
+        action_kw = ["추천", "가성비", "가격", "재고", "얼마", "저렴", "싼", "있어", "보여줘", "등급"]
+        purpose_kw = ["촬영", "유튜브", "게임", "인강", "세컨", "운동", "필기", "공부", "업무"]
+        
+        # 1. 의미 있는 질문인지 판단 (핵심 로직)
+        is_meaningful = any(kw in q_clean for kw in (category_kw + action_kw + purpose_kw))
+        # 2. 너무 짧거나 자음뿐인 경우 제외
+        is_too_short = len(q_clean) < 2 and not any(kw in q_clean for kw in category_kw)
 
         response = ""
         final_df = None
 
-        if is_recommend_talk or is_reply or len(q_clean) >= 2:
-            with st.spinner("점장님이 장부를 확인 중입니다..."):
-                if any(kw in user_input for kw in watch_kw): st.session_state.last_category = "애플워치"
-                elif any(kw in user_input for kw in phone_kw): st.session_state.last_category = "아이폰"
-                elif any(kw in user_input for kw in mac_kw): st.session_state.last_category = "맥북"
-                elif any(kw in user_input for kw in pad_kw): st.session_state.last_category = "아이패드"
+        # [상황 A] 못 알아들을 말인 경우 -> 가이드 제시
+        if not is_meaningful or is_too_short:
+            response = """고객님, 죄송하지만 말씀하신 내용을 제가 잘 이해하지 못했어요. 😅  
+            보상나라 점장님에게 **이렇게 물어보시면** 딱 맞는 제품을 찾아드릴 수 있습니다!
+            
+            ---
+            **💡 점장님 추천 질문 리스트**
+            1. "입문용으로 좋은 **저렴한 아이패드** 있어?" 📝
+            2. "사진 잘 나오는 **아이폰 15 Pro** 재고 확인해줘" 📸
+            3. "운동할 때 쓸 **가성비 애플워치** 추천해줘" ⌚
+            4. "보상나라 **등급 기준**이 어떻게 돼?" 📋
+            ---
+            찾으시는 모델이나 용도를 조금 더 자세히 말씀해 주시겠어요?"""
+            st.session_state.waiting_for_purpose = False
+
+        # [상황 B] 제대로 된 질문인 경우 -> 제품 추천 진행
+        else:
+            with st.spinner("장부를 확인하고 있습니다..."):
+                # 카테고리 업데이트
+                if any(kw in q_clean for kw in ["워치", "애플워치"]): st.session_state.last_category = "애플워치"
+                elif any(kw in q_clean for kw in ["폰", "아이폰"]): st.session_state.last_category = "아이폰"
+                elif any(kw in q_clean for kw in ["맥북", "노트북"]): st.session_state.last_category = "맥북"
+                elif any(kw in q_clean for kw in ["패드", "아이패드"]): st.session_state.last_category = "아이패드"
                 
                 cat_df = df[df['카테고리'].str.contains(st.session_state.last_category, na=False)].copy()
+                
+                # 재고 검색
                 search_word = user_input.split()[0]
                 target_stock = cat_df[cat_df['상품명 (정제형)'].str.contains(search_word, case=False, na=False)]
                 
                 has_actual_stock = not target_stock.empty
-                stock_result = target_stock.head(3) if has_actual_stock else cat_df.head(3)
+                stock_result = target_stock.head(2) if has_actual_stock else cat_df.head(2)
                 stock_list = stock_result.to_dict('records')
                 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-                # [전문가용 프롬프트: 큐레이션 강화]
-                sys_prompt = f"""너는 '보상나라'의 베테랑 점장이야. 
-                [상담 원칙]
-                1. 엑셀의 '점장 큐레이션' 문구를 그대로 복사해서 나열하지 마. 그 내용을 바탕으로 왜 추천하는지 "전문가적인 이유"를 덧붙여서 문장으로 말해.
-                2. 답변에 "카테고리: ", "상품명 (정제형): " 같은 데이터 필드명을 절대 노출하지 마. 자연스러운 대화문으로 작성해.
-                3. 모델명, 등급, 가격 정보는 문장 중간에 자연스럽게 언급하거나 마지막에 요약해줘.
-                4. 재고가 없으면(has_actual_stock={has_actual_stock}) 솔직하게 말하고 대체제를 추천해.
-                5. 한자 금지, 줄바꿈 공백 2개 준수.
+                sys_prompt = f"""너는 '보상나라' 점장이야. 
+                [규칙]
+                1. 엑셀 정보를 그대로 읽지 말고 전문가로서 '이유'를 덧붙여 추천해.
+                2. 재고 유무(has_actual_stock={has_actual_stock})를 정확히 반영해.
+                3. 고객이 이미 말한 용도는 다시 묻지 마. 
+                4. "카테고리:", "상품명:" 같은 단어 쓰지 마. 자연스러운 대화문으로 답해.
                 
-                [재고 정보]: {stock_list}"""
+                [재고]: {stock_list}"""
 
                 res = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[{"role": "system", "content": sys_prompt}] + 
                              [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-3:]],
-                    temperature=0.3 
+                    temperature=0.3
                 ).choices[0].message.content
                 
                 response = res.replace("\n", "  \n")
-                # 표에 들어갈 정보는 정제해서 보여줌
                 final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리_표기']]
                 
-                if not user_already_stated_purpose and not is_reply:
-                    response += "  \n\n**고객님, 어떤 용도로 사용하실 예정인가요? 말씀해 주시면 더 딱 맞는 모델을 추천해 드릴게요!**"
+                # 용도 질문 여부
+                user_stated_purpose = any(kw in q_clean for kw in purpose_kw)
+                if not user_stated_purpose:
+                    response += "  \n\n**고객님, 생각하시는 용도를 말씀해 주시면 더 정확한 추천이 가능합니다!**"
                     st.session_state.waiting_for_purpose = True
-                else:
-                    st.session_state.waiting_for_purpose = False
 
-        if not response:
-            response = "어이쿠 고객님! 제가 답변 드리기 어렵네요 😅 제품 추천이나 등급이 궁금하시면 말씀해 주세요!"
-
+        # 최종 출력
         st.markdown(response)
         if final_df is not None:
-            # 상세 정보는 표로 깔끔하게 정리 (텍스트 중복 방지)
             with st.expander("📊 추천 모델 상세 사양 확인하기"):
-                st.table(final_df) 
+                st.table(final_df)
             st.session_state.messages.append({"role": "assistant", "content": response, "df": final_df})
         else:
             st.session_state.messages.append({"role": "assistant", "content": response})
