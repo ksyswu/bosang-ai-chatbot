@@ -23,9 +23,9 @@ def load_inventory():
         df = pd.read_excel(file_name, sheet_name='Sheet1')
         df.columns = [str(c).strip() for c in df.columns]
         df['판매가'] = pd.to_numeric(df['판매가'], errors='coerce').fillna(0)
-        df['판매가_표기'] = df['판매가'].apply(lambda x: "{:,}원".format(int(x)))
+        df['판매가'] = df['판매가'].apply(lambda x: "{:,}원".format(int(x)))
         if '배터리' in df.columns:
-            df['배터리_표기'] = pd.to_numeric(df['배터리'], errors='coerce').apply(
+            df['배터리'] = pd.to_numeric(df['배터리'], errors='coerce').apply(
                 lambda x: f"{int(x * 100)}%" if pd.notnull(x) and x <= 1 else (f"{int(x)}%" if pd.notnull(x) else "정보없음")
             )
         return df
@@ -123,7 +123,7 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 ).choices[0].message.content
                 
                 response = res.replace("\n", "  \n")
-                final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리_표기']]].reset_index(drop=True) if not stock_result.empty else None
+                final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리']]].reset_index(drop=True) if not stock_result.empty else None
 
         st.markdown(response)
         if final_df is not None:
