@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from groq import Groq
 
-# --- 1. 페이지 설정 및 제목 ---
+# --- 1. 페이지 설정 및 제목 (디자인 유지) ---
 st.set_page_config(page_title="보상나라 AI 점장님", layout="wide")
 
 st.markdown("""
@@ -13,7 +13,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.markdown('<p class="main-title">💻 보상나라 AI 점장님 실시간 상담</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-title">전문 점장님이 장부를 확인하여 최적의 기기를 추천해 드립니다. ✨</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">장부 확인 완료! 지금 바로 구매 가능한 최상의 기기만 추천합니다. ✨</p>', unsafe_allow_html=True)
 
 # --- 2. 데이터 로드 ---
 @st.cache_data
@@ -33,7 +33,7 @@ def load_inventory():
 
 df = load_inventory()
 
-# --- 3. 세션 상태 관리 (맥락 유지의 핵심) ---
+# --- 3. 세션 상태 관리 ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "last_category" not in st.session_state:
@@ -41,7 +41,7 @@ if "last_category" not in st.session_state:
 if "waiting_for_purpose" not in st.session_state:
     st.session_state.waiting_for_purpose = False
 
-# --- 4. 사이드바 (등급 기준) ---
+# --- 4. 사이드바 (등급 기준 복구) ---
 with st.sidebar:
     st.header("✨ 보상나라 등급 기준")
     st.markdown("""
@@ -71,12 +71,11 @@ if user_input := st.chat_input("질문을 입력하세요!"):
         # 키워드 정의
         grade_kw = ["등급", "기준", "상태", "s급", "a급", "b급", "가성비", "진열"]
         product_kw = ["폰", "아이폰", "패드", "아이패드", "워치", "맥북", "노트북"]
-        trade_kw = ["추천", "가격", "재고", "얼마", "저렴", "싼", "있어", "팔아", "구매", "매물"]
-        purpose_kw = ["촬영", "사진", "유튜브", "게임", "인강", "세컨", "서브", "운동", "필기", "작업", "일상", "들고", "용도"]
+        trade_kw = ["추천", "가격", "재고", "얼마", "저렴", "싼", "있어", "구매", "매물"]
+        purpose_kw = ["촬영", "사진", "유튜브", "게임", "인강", "세컨", "운동", "필기", "작업", "일상", "들고", "용도"]
 
-        # [의도 분류 로직 보완]
+        # 의도 분류
         is_grade_query = any(kw in q_clean for kw in grade_kw) and not any(kw in q_clean for kw in trade_kw)
-        # 용도 답변 중이거나, 제품/매매/용도 관련 키워드가 하나라도 있으면 유효한 질문으로 판단
         is_meaningful = any(kw in q_clean for kw in (product_kw + trade_kw + purpose_kw + grade_kw)) or st.session_state.waiting_for_purpose
         is_recommend_talk = any(kw in q_clean for kw in (product_kw + trade_kw + purpose_kw)) or st.session_state.waiting_for_purpose
 
@@ -96,10 +95,10 @@ if user_input := st.chat_input("질문을 입력하세요!"):
 찾으시는 모델이 있다면 점장님에게 말씀해 주세요!"""
             st.session_state.waiting_for_purpose = False
 
-        # [CASE 2] 의미 없는 입력 (ㅇㄹ 등) -> 질문 가이드
-        elif not is_meaningful:
+        # [CASE 2] 의미 없는 입력 (ㅇㄹ 등) -> 질문 가이드 (대표님 요청 리스트 복구)
+        elif not is_meaningful or (len(q_clean) < 2 and not st.session_state.waiting_for_purpose):
             response = """고객님, 말씀하신 내용을 제가 잘 이해하지 못했어요. 😅  
-            점장님에게 이렇게 물어보시면 재고를 바로 찾아드릴 수 있습니다!
+            점장님에게 이렇게 물어보시면 딱 맞는 제품을 바로 찾아드릴 수 있습니다!
             
 ---
 **💡 점장님 추천 질문 리스트**
@@ -109,10 +108,9 @@ if user_input := st.chat_input("질문을 입력하세요!"):
 ---"""
             st.session_state.waiting_for_purpose = False
 
-        # [CASE 3] 제품 추천 및 상담 (맥락 유지 강화)
+        # [CASE 3] 제품 추천 및 상담 (영업 모드)
         elif is_recommend_talk:
-            with st.spinner("장부를 확인하고 있습니다..."):
-                # 카테고리 고정 및 업데이트
+            with st.spinner("점장님이 장부를 확인 중입니다..."):
                 if any(kw in q_clean for kw in ["워치", "애플워치"]): st.session_state.last_category = "애플워치"
                 elif any(kw in q_clean for kw in ["폰", "아이폰"]): st.session_state.last_category = "아이폰"
                 elif any(kw in q_clean for kw in ["맥북", "노트북"]): st.session_state.last_category = "맥북"
@@ -120,22 +118,21 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 
                 cat_df = df[df['카테고리'].str.contains(st.session_state.last_category, na=False)].copy()
                 
-                # 검색어 추출 (단답형 용도 답변인 경우 이전 검색어 유지)
+                # 재고 검색 로직
                 search_word = user_input.split()[0] if not st.session_state.waiting_for_purpose else ""
                 target_stock = cat_df[cat_df['상품명 (정제형)'].str.contains(search_word, case=False, na=False)] if search_word else pd.DataFrame()
                 
-                has_actual_stock = not target_stock.empty
-                stock_result = target_stock.head(2) if has_actual_stock else cat_df.head(2)
+                # 재고가 있는 제품만 AI에게 전달
+                stock_result = target_stock.head(2) if not target_stock.empty else cat_df.head(2)
                 stock_list = stock_result.to_dict('records')
                 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                 sys_prompt = f"""너는 '보상나라'의 베테랑 점장이야. 
-                [상담 원칙]
-                1. 고객이 "일상용" 같은 단답형 답변을 했다면, 이전 대화와 연결해서 제품을 계속 추천해.
-                2. 우리 등급: S, A, B, 가성비, 진열상품 (이 외 절대 금지)
-                3. 재고 정보({stock_list})를 기반으로, 전문가로서 왜 이 모델이 고객의 용도에 맞는지 '이유'를 덧붙여.
-                4. 재고가 있다면(has_actual_stock={has_actual_stock}) 확실하게 안내하고, 없을 때만 대체제를 제안해.
-                5. 대화체로 친절하게 답하고 필드명(카테고리 등)은 노출하지 마.
+                [상담 지침]
+                1. 절대로 재고가 없는 제품은 언급하지 마. 오직 제공된 [장부 데이터]에 있는 모델만 추천해.
+                2. 고객이 "일상용" 같은 답변을 하면, 장부 속 기기의 무게나 가성비를 연결해 '전문가적 추천 이유'를 덧붙여.
+                3. "재고가 없어서 다른 걸 드립니다"라는 말은 금지야. 있는 재고가 최고의 선택인 것처럼 자신 있게 권해.
+                4. "카테고리:", "판매가:" 같은 필드명은 노출하지 말고 친절한 대화체로 써.
                 
                 [장부 데이터]: {stock_list}"""
 
@@ -149,9 +146,10 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 response = res.replace("\n", "  \n")
                 final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리_표기']]
                 
-                # 용도 질문을 이미 했고, 고객이 답했다면 더 이상 묻지 않음
-                if not any(kw in q_clean for kw in purpose_kw) and not st.session_state.waiting_for_purpose:
-                    response += "  \n\n**고객님, 구체적으로 어떤 용도로 사용하실 예정인가요? 말씀해 주시면 딱 맞는 모델을 골라드릴게요!**"
+                # 용도 질문 중복 체크 및 맥락 관리
+                user_answered_purpose = any(kw in q_clean for kw in purpose_kw)
+                if not user_answered_purpose and not st.session_state.waiting_for_purpose:
+                    response += "  \n\n**고객님, 구체적으로 어떤 용도로 사용하실 예정인가요? 말씀해 주시면 더 딱 맞는 모델을 골라드릴게요!**"
                     st.session_state.waiting_for_purpose = True
                 else:
                     st.session_state.waiting_for_purpose = False
