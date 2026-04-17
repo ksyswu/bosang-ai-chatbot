@@ -47,10 +47,10 @@ with st.sidebar:
     st.header("✨ 보상나라 등급 기준")
     st.markdown("""
 - **S 등급**: 신품급! 선물용 강추! 🎁
-- **A 등급**: 깔끔함. 미세 흔적, 가성비 최고 ✨
-- **B 등급**: 생활 기스 있음. 기능은 완벽 💯
-- **가성비**: 찍힘 등 외관 흔적 있음 (실속파) 💪
-- **진열상품**: 매장 전시용. 배터리 효율 최상 🚀
+- **A 등급**: 깔끔함. 가성비 최고 ✨
+- **B 등급**: 생활 기스 있음 💯
+- **가성비**: 실속파용 💪
+- **진열상품**: 배터리 최상 🚀
     """)
 
 # 대화 로그 출력
@@ -83,14 +83,7 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                             (st.session_state.is_in_consult and any(kw in q_clean for kw in context_kw))
 
         if is_grade_query:
-            response = """보상나라의 등급 기준을 안내해 드릴게요! ✨
-            
-1. **S 등급**: 신품급 상태로 선물용으로 인기가 가장 많아요. 🎁
-2. **A 등급**: 미세한 흔적 정도만 있는 아주 깔끔한 제품이에요. ✨
-3. **B 등급**: 생활 기스가 조금 있지만 가성비가 훌륭해요. 💯
-4. **가성비/진열**: 실속파를 위한 저렴한 모델들입니다. 🚀
-
-관심 있는 기종의 재고를 확인해 드릴까요?"""
+            response = "보상나라의 등급 기준은 S(신품급), A(깔끔함), B(생활기스), 가성비, 진열상품으로 나뉩니다. 상세 내용은 사이드바를 참고해주세요! 😊"
             st.session_state.is_in_consult = False
             final_df = None
 
@@ -103,38 +96,41 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 elif any(kw in q_clean for kw in phone_kw): current_cat = "아이폰"
                 else: current_cat = st.session_state.last_category
                 
-                cat_df = df[df['카테고리'].str.contains(current_cat, na=False)].copy()
-                
-                if cat_df.empty:
+                # 재고 필터링
+                full_cat_df = df[df['카테고리'].str.contains(current_cat, na=False)].sort_values(by='판매가')
+                is_alternative = False
+                lowest_price_str = ""
+
+                if full_cat_df.empty:
+                    # 해당 카테고리 재고가 아예 없으면 아이폰으로 선회
                     st.session_state.last_category = "아이폰"
-                    cat_df = df[df['카테고리'].str.contains("아이폰", na=False)].copy()
+                    stock_result = df[df['카테고리'].str.contains("아이폰", na=False)].head(2)
                     is_alternative = True
                 else:
                     st.session_state.last_category = current_cat
-                    is_alternative = False
+                    lowest_price_str = full_cat_df['판매가_표기'].iloc[0]
+                    # '더 저렴한 것' 요청 여부와 상관없이 항상 가격순 상위 2개 추출
+                    stock_result = full_cat_df.head(2)
 
-                if any(kw in q_clean for kw in ["저렴", "싼", "가성비", "더"]):
-                    stock_result = cat_df.sort_values(by='판매가').head(2)
-                else:
-                    stock_result = cat_df.head(2)
-                
                 stock_list = stock_result.to_dict('records')
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                 
+                # [점장님 최종 영업 지침]
                 sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 
                 
-                [상담 원칙]
-                1. 추천 시 가이드 생략: 이미 제품을 추천하고 가격을 말할 때는 "질문 리스트"나 "💡 이렇게 물어보세요" 같은 문구를 절대 쓰지 마. 흐름이 깨져.
-                2. 구매 확신 유도: 대신 "상태가 좋아 금방 나갈 것 같습니다"나 "이 정도면 정말 가성비 최고죠" 같은 멘트로 대화를 마무리해.
-                3. 데이터 엄수: [오늘의 실제 재고]에 있는 가격({stock_list})만 말해.
-                4. 대안 추천: 재고가 없으면(is_alternative=True) 정직하게 말하고 아이폰을 대안으로 제안해.
-
-                [오늘의 실제 재고]: {stock_list}"""
+                [상담 및 영업 지침]
+                1. 가격 논리: 고객이 '더 싼 거 없냐'고 물었을 때, 지금 추천한 가격이 장부 내 최저가({lowest_price_str})라면 "이게 현재 저희 매장에서 가장 저렴한 최저가 재고입니다"라고 당당하게 팔아. 딴소리 절대 금지.
+                2. 데이터 용어 제거: '카테고리:', '상세모델:', '상품명(정제형):' 같은 시스템 필드명을 답변에 절대 노출하지 마. 자연스럽게 모델명과 특징만 말해.
+                3. 추천 시 가이드 생략: 이미 제품을 추천할 때는 "💡 이렇게 물어보세요" 가이드를 절대 쓰지 마. 구매 확신 멘트(예: "금방 나갈 제품입니다")로 마무리해.
+                4. 정확한 정보: 장부에 있는 가격과 등급만 말하고, 네가 모르는 숫자(무게, 정확한 사진 전송 약속 등)는 지어내지 마.
+                
+                [오늘의 실제 재고 데이터]: {stock_list}
+                [대안 추천 상태]: {is_alternative}"""
 
                 res = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[{"role": "system", "content": sys_prompt}] + 
-                             [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-5:]],
+                             [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-3:]],
                     temperature=0.0
                 ).choices[0].message.content
                 
@@ -142,7 +138,7 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리_표기']].reset_index(drop=True)
                 
         else:
-            # 질문을 못 알아들었거나 처음 시작할 때만 '질문 가이드' 노출
+            # 못 알아들었을 때만 가이드 노출
             response = """반갑습니다! 보상나라 점장입니다. 😊  
 어떤 기기를 찾으시나요? 장부에서 가장 상태 좋은 녀석으로 골라드릴게요!
 
