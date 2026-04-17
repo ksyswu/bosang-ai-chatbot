@@ -42,7 +42,7 @@ if "last_category" not in st.session_state:
 if "is_in_consult" not in st.session_state:
     st.session_state.is_in_consult = False
 
-# --- [4] 사이드바 (등급 기준) ---
+# --- [4] 사이드바 ---
 with st.sidebar:
     st.header("✨ 보상나라 등급 기준")
     st.markdown("""
@@ -83,24 +83,21 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                             (st.session_state.is_in_consult and any(kw in q_clean for kw in context_kw))
 
         if is_grade_query:
-            response = "보상나라의 등급 기준은 S(신품급), A(깔끔함), B(생활기스), 가성비, 진열상품으로 나뉩니다. 자세한 내용은 왼쪽 사이드바를 확인해 주세요! 😊"
+            response = "보상나라 등급은 S(신품급), A(깔끔함), B(생활기스), 가성비, 진열상품으로 나뉩니다. 자세한 건 사이드바에 잘 정리해뒀습니다! 😊"
             st.session_state.is_in_consult = False
             final_df = None
 
         elif is_recommend_talk:
             st.session_state.is_in_consult = True
             with st.spinner("장부 확인 중..."):
-                # 카테고리 판별
                 if any(kw in q_clean for kw in watch_kw): current_cat = "워치"
                 elif any(kw in q_clean for kw in pad_kw): current_cat = "아이패드"
                 elif any(kw in q_clean for kw in laptop_kw): current_cat = "맥북"
                 elif any(kw in q_clean for kw in phone_kw): current_cat = "아이폰"
                 else: current_cat = st.session_state.last_category
                 
-                # 재고 필터링 및 최저가 파악
                 full_cat_df = df[df['카테고리'].str.contains(current_cat, na=False)].sort_values(by='판매가')
                 is_alternative = False
-                abs_lowest_price = ""
 
                 if full_cat_df.empty:
                     st.session_state.last_category = "아이폰"
@@ -114,39 +111,36 @@ if user_input := st.chat_input("질문을 입력하세요!"):
 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                 
-                # [점장님 최종 훈육 지침]
-                sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 손님의 질문 의도를 정확히 파악해서 장사꾼답게 대답해.
+                sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 확신을 주되 중고 기기의 특성을 고려해 정직하게 영업해.
 
-                [절대 준수 지침]
-                1. 최저가 논리: 손님이 '더 싼 것'을 찾을 때, 현재 추천 모델 가격이 매장 최저가({abs_lowest_price})와 같다면 "지금 보시는 제품이 저희 매장 전체에서 가장 저렴한 최저가 모델입니다"라고 확신을 줘. 
-                2. 용도별 차별화: 프로그래밍, 영상편집, 학교 등 용도에 맞춰 '램 용량', '휴대성', '가성비' 등 세일즈 포인트를 다르게 짚어줘. 앵무새처럼 같은 말 반복 금지.
-                3. 시스템 용어 노출 금지: '카테고리:', '상세모델:', '상품명(정제형):' 같은 단어는 답변 텍스트에 절대 쓰지 마. 자연스러운 문장으로만 말해.
-                4. 추천 시 가이드 생략: 제품 추천이 나갈 때는 "💡 이렇게 물어보세요" 가이드를 절대 출력하지 마.
-                5. 정직한 영업: 장부에 없는 정보(램 업그레이드 여부, 입고 예정일, 실시간 사진 전송 등)를 지어내지 마.
+                [영업 및 리스크 관리 지침]
+                1. 솔직한 확답: "가능하냐"는 질문에 "충분히 가능하다"고 답하되, 무거운 작업(4K 편집, 고사양 게임 등)의 경우 "다만 연식이 있다보니 고사양 작업 시 발열이나 팬 소음은 감안하셔야 한다"고 정직하게 덧붙여. (나중의 클레임 방지)
+                2. 중복 스펙 나열 금지: 매번 배터리 %나 가격을 기계적으로 읊지 마. 질문의 핵심에 대해서만 명확히 답하고 대화를 이어가.
+                3. 내부 용어 숨기기: '카테고리:', '상세모델:', '상품명(정제형):' 같은 시스템 용어는 절대 답변에 쓰지 마.
+                4. 최저가 쐐기: 현재 추천 모델 가격이 매장 최저가({abs_lowest_price})라면 "저희 매장에서 가장 자신 있게 권해드리는 최저가 모델"이라고 강조해.
+                5. 로봇 말투 금지: "제공합니다", "적합합니다" 대신 "충분해요", "떡을 칩니다", "쌩쌩 돌아가요" 같은 구어체를 써. 추천 시 가이드(💡)는 생략해.
 
                 [오늘의 실제 재고 데이터]: {stock_list}
-                [매장 내 최저가 정보]: {abs_lowest_price}
-                [대안 추천 상태]: {is_alternative}"""
+                [매장 내 최저가]: {abs_lowest_price}"""
 
                 res = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[{"role": "system", "content": sys_prompt}] + 
                              [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-3:]],
-                    temperature=0.2 # 약간의 유연성을 주어 앵무새 답변 방지
+                    temperature=0.3
                 ).choices[0].message.content
                 
                 response = res.replace("\n", "  \n")
                 final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리_표기']].reset_index(drop=True)
                 
         else:
-            # 초기 상태 또는 이해 불능 시에만 가이드 노출
-            response = """반갑습니다! 보상나라 점장입니다. 😊  
-어떤 기기를 찾으시나요? 장부에서 가장 상태 좋고 저렴한 녀석으로 골라드릴게요!
-
-**💡 점장님에게 이렇게 물어보시면 빨라요!**
-- "인강용 **저렴한 아이패드** 추천해줘" 💻
-- "**아이폰 15 Pro** S급 재고 있어?" 📸
-- "보상나라 **등급 기준** 알려줘" 📋"""
+            response = """반갑습니다! 보상나라 점장입니다. 😊 어떤 기기를 찾으시나요?  
+            장부에서 상태 좋고 가격 착한 녀석들로 딱 골라드릴게요!
+            
+            **💡 이렇게 물어보시면 빨라요!**
+            - "인강용 **저렴한 아이패드** 추천해줘"
+            - "**아이폰 15 Pro** S급 재고 있어?"
+            """
             st.session_state.is_in_consult = False
             final_df = None
 
