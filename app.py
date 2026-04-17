@@ -53,7 +53,6 @@ with st.sidebar:
 - **진열상품**: 매장 전시용. 배터리 최상 🚀
     """)
 
-# 대화 로그 출력
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -76,14 +75,17 @@ if user_input := st.chat_input("질문을 입력하세요!"):
         pad_kw = ["패드", "아이패드", "태블릿"]
         watch_kw = ["워치", "시계", "애플워치"]
         action_kw = ["추천", "얼마", "재고", "저렴", "싼", "가성비", "가격", "있어", "있나요"]
-        context_kw = ["편집", "용도", "사용", "적합", "배터리", "인강", "학교", "성능", "게임", "프로그래밍", "개발", "더"]
+        # 문맥 유지 키워드 강화 (그림, 코딩 등 용도 관련)
+        context_kw = ["편집", "용도", "사용", "적합", "배터리", "인강", "학교", "성능", "게임", "프로그래밍", "개발", "그림", "드로잉", "가능", "돼", "될까"]
 
         is_grade_query = any(kw in q_clean for kw in grade_kw) and not any(kw in q_clean for kw in (action_kw + context_kw))
+        
+        # 상담 중일 때는 용도만 물어봐도 상담 유지
         is_recommend_talk = any(kw in q_clean for kw in (laptop_kw + phone_kw + pad_kw + watch_kw + action_kw)) or \
                             (st.session_state.is_in_consult and any(kw in q_clean for kw in context_kw))
 
         if is_grade_query:
-            response = "보상나라 등급은 S(신품급), A(깔끔함), B(생활기스), 가성비, 진열상품으로 나뉩니다. 자세한 내용은 사이드바를 확인해주세요! 😊"
+            response = "보상나라 등급은 S(신품급), A(깔끔함), B(생활기스), 가성비, 진열상품으로 나뉩니다. 왼쪽 사이드바에서 상세 기준을 보실 수 있어요! 😊"
             st.session_state.is_in_consult = False
             final_df = None
 
@@ -97,13 +99,6 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 else: current_cat = st.session_state.last_category
                 
                 full_cat_df = df[df['카테고리'].str.contains(current_cat, na=False)].sort_values(by='판매가')
-                is_alternative = False
-
-                if full_cat_df.empty:
-                    st.session_state.last_category = "아이폰"
-                    full_cat_df = df[df['카테고리'].str.contains("아이폰", na=False)].sort_values(by='판매가')
-                    is_alternative = True
-                
                 st.session_state.last_category = current_cat
                 abs_lowest_price = full_cat_df['판매가_표기'].iloc[0] if not full_cat_df.empty else ""
                 stock_result = full_cat_df.head(2)
@@ -111,20 +106,15 @@ if user_input := st.chat_input("질문을 입력하세요!"):
 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                 
-                # [점장님 최종 지침 - "거짓 없는 정직한 영업"]
                 sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 
-                가장 중요한 건 '정직'이야. 모르는 걸 아는 척하거나, 안 되는 걸 된다고 거짓말하지 마.
-
-                [데이터 기반 영업 지침]
-                1. 팩트 기반 상담: 장부 데이터에 있는 사양(연식, 램, 가격)만 말해. 
-                2. 용도에 대한 정직함: "이 모델로 프로그래밍 되나요?" 물었을 때, 사양이 낮으면 "가벼운 학습은 가능하지만, 전문 작업용으로는 부족할 수 있습니다"라고 솔직하게 말해. 
-                3. 대화 연결: 손님이 앞에서 물어본 모델을 기억해서 "아까 보신 그 제품은 이런 장단점이 있습니다"라고 자연스럽게 대화해.
-                4. 최저가 고지: 현재 추천하는 모델이 진짜 장부 내 최저가({abs_lowest_price})일 때만 "저희 매장 최저가"라고 강조해.
-                5. 줄바꿈 가독성: 모델명, 가격, 특징을 한 줄씩 구분해서 깔끔하게 출력해. (Markdown 줄바꿈 준수)
-                6. 금지사항: '카테고리:', '상세모델:' 등 시스템 필드명 절대 노출 금지. 추천 시 가이드(💡) 생략.
+                1. 글자 크기 주의: 큰 제목(#)은 절대 쓰지 마. 일반 텍스트와 굵게(**)만 사용해.
+                2. 대화 연결: 손님이 "그림도 가능해?" 처럼 이어서 물으면, "방금 말씀드린 그 모델로 당연히 가능하죠!" 라고 대답해. 처음 인사부터 다시 하지 마.
+                3. 정직한 팩트: 사양상 안 되는 걸 된다고 하지 마. 그림용이면 "펜슬 호환되니 충분히 가능합니다"라고 장부에 근거해 말해.
+                4. 가독성: 모델명, 가격, 특징을 줄바꿈해서 깔끔하게 보여줘.
+                5. 금지어: 시스템 필드명('카테고리:' 등)과 하단 가이드(💡)는 답변에 절대 넣지 마.
 
                 [오늘의 실제 재고 데이터]: {stock_list}
-                [매장 내 최저가 정보]: {abs_lowest_price}"""
+                [매장 내 최저가]: {abs_lowest_price}"""
 
                 res = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
@@ -142,8 +132,7 @@ if user_input := st.chat_input("질문을 입력하세요!"):
 
 **💡 이렇게 물어보시면 빨라요!**
 - "인강용 **저렴한 아이패드** 추천해줘"
-- "**아이폰 15 Pro** S급 재고 있어?"
-- "**운동용 애플워치** 추천해줘" """
+- "**아이폰 15 Pro** S급 재고 있어?" """
             st.session_state.is_in_consult = False
             final_df = None
 
