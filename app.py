@@ -14,7 +14,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.markdown('<p class="main-title">💻 보상나라 AI 점장님 실시간 상담</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-title">장부 확인 완료! 점장님이 직접 선별한 최적의 기기만 정직하게 추천합니다. ✨</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">불필요한 정보 없이, 손님의 용도에 딱 맞는 제품만 제안합니다. ✨</p>', unsafe_allow_html=True)
 
 # --- [2] 데이터 로드 ---
 @st.cache_data
@@ -23,6 +23,7 @@ def load_inventory():
     try:
         df = pd.read_excel(file_name, sheet_name='Sheet1')
         df.columns = [str(c).strip() for c in df.columns]
+        # 숫자 데이터 정제
         df['판매가'] = pd.to_numeric(df['판매가'], errors='coerce').fillna(0)
         df['판매가_표기'] = df['판매가'].apply(lambda x: "{:,}원".format(int(x)))
         if '배터리' in df.columns:
@@ -34,7 +35,7 @@ def load_inventory():
 
 df = load_inventory()
 
-# --- [3] 세션 관리 ---
+# --- [3] 세션 관리 (맥락 유지의 핵심) ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "last_category" not in st.session_state:
@@ -42,7 +43,7 @@ if "last_category" not in st.session_state:
 if "is_in_consult" not in st.session_state:
     st.session_state.is_in_consult = False
 
-# --- [4] 사이드바 (등급 기준 원문 고정) ---
+# --- [4] 사이드바 (등급 기준 원문 유지) ---
 with st.sidebar:
     st.header("✨ 보상나라 등급 기준")
     st.markdown("""
@@ -53,7 +54,7 @@ with st.sidebar:
 - **진열상품**: 매장 전시용. 배터리 효율 최상 🚀
     """)
 
-# 이전 대화 출력 (표 기본 펼침 상태 유지)
+# 이전 대화 출력 (표는 expanded=True로 항상 펼침)
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -69,31 +70,35 @@ if user_input := st.chat_input("질문을 입력하세요!"):
     with st.chat_message("assistant"):
         q_clean = user_input.replace(" ", "").lower()
         
+        # 키워드 체계 (맥락 유지용 추가 키워드 포함)
         grade_kw = ["등급", "기준", "상태"]
         laptop_kw = ["맥북", "노트북", "컴퓨터", "랩탑"]
         phone_kw = ["폰", "아이폰", "갤럭시", "핸드폰"]
         pad_kw = ["패드", "아이패드", "태블릿"]
         action_kw = ["추천", "얼마", "재고", "저렴", "싼", "가성비", "가격", "있어", "있나요"]
-        context_kw = ["편집", "용도", "사용", "적합", "응", "더", "무게", "배터리", "인강", "학교", "사진", "카메라", "촬영", "영상"]
+        context_kw = ["편집", "용도", "사용", "적합", "응", "더", "무게", "배터리", "인강", "학교", "사진", "카메라", "촬영", "영상", "가능", "돼", "어때"]
 
+        # 의도 분류
         is_grade_query = any(kw in q_clean for kw in grade_kw) and not any(kw in q_clean for kw in (action_kw + context_kw))
         is_recommend_talk = any(kw in q_clean for kw in (laptop_kw + phone_kw + pad_kw + action_kw)) or \
                             (st.session_state.is_in_consult and any(kw in q_clean for kw in context_kw))
 
         if is_grade_query:
-            response = "보상나라 등급은 S(신품급), A(깔끔함), B(생활기스), 가성비(외관흔적), 진열상품(전시용)으로 나뉩니다. 😊\n\n어떤 모델을 찾으시나요?"
+            response = "보상나라 등급은 S(신품급), A(깔끔함), B(생활기스), 가성비(외관흔적), 진열상품(전시용)으로 나뉩니다. 😊\n\n구체적으로 찾는 모델이 있으신가요?"
             st.session_state.is_in_consult = False
             final_df = None
             
         elif is_recommend_talk:
             st.session_state.is_in_consult = True
             with st.spinner("장부 확인 중..."):
+                # 카테고리 고정 및 업데이트
                 if any(kw in q_clean for kw in laptop_kw): st.session_state.last_category = "맥북"
                 elif any(kw in q_clean for kw in phone_kw): st.session_state.last_category = "아이폰"
                 elif any(kw in q_clean for kw in pad_kw): st.session_state.last_category = "아이패드"
                 
                 cat_df = df[df['카테고리'].str.contains(st.session_state.last_category, na=False)].copy()
                 
+                # 검색 결과 도출
                 if any(kw in q_clean for kw in ["저렴", "싼", "가성비", "더"]):
                     stock_result = cat_df.sort_values(by='판매가').head(2)
                 else:
@@ -104,14 +109,15 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 stock_list = stock_result.to_dict('records')
                 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+                
+                # [점장님 페르소나 강화 지침]
                 sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 
 
-                [상담 원칙]
-                1. 가독성 강화: 답변 중간에 줄바꿈을 적절히 섞어서 가독성을 높여.
-                2. 적절한 이모지 사용: 문맥에 맞게 핵심적인 곳에 이모지(📱, ✨, ✅ 등)를 한두 개 섞어서 친절하게 답해.
-                3. 영업 마인드: 찾는 모델이 없으면 아쉬움을 표하고, 현재 재고 중 가장 매력적인 대안을 확신 있게 제안해.
-                4. 중복 질문 금지: 이미 용도를 말했다면 다시 묻지 마.
-                5. 가격 환각 방지: 가격은 표에 있으니 텍스트로 임의 숫자를 지어내지 마.
+                [지침 1: 대화 맥락] 고객이 추가 질문(예: "프로그래밍도 돼?")을 하면 이전 추천 기기를 기반으로 대화를 이어가. 절대 초기화된 답변이나 질문 리스트를 다시 보여주지 마.
+                [지침 2: 데이터 정합성] '카테고리', '상세모델' 같은 내부 데이터 필드명을 답변에 노출하지 마. 오직 '상품명 (정제형)'만 써.
+                [지침 3: 가독성 및 톤] 줄바꿈을 자주 써서 가독성을 높이고, 핵심 포인트에 이모지(✨, ✅, 💻)를 사용해 친절하면서도 단호하게 추천해. 
+                [지침 4: 영업] 찾는 재고가 없으면 아쉬움을 표하고 실재고 중 최선의 대안을 제안해. 가격은 표에 있으니 텍스트로 지어내지 마.
+                [지침 5: 중복 금지] 이미 용도를 말했다면 다시 묻지 마.
 
                 [오늘의 실제 재고]: {stock_list}"""
 
@@ -137,7 +143,7 @@ if user_input := st.chat_input("질문을 입력하세요!"):
 
         st.markdown(response)
         if final_df is not None:
-            # [수정 포인트: expanded=True 설정으로 표가 기본으로 펼쳐짐]
+            # 표 기본 펼침 (expanded=True)
             with st.expander("📊 추천 모델 상세 사양 확인하기", expanded=True):
                 st.table(final_df)
             st.session_state.messages.append({"role": "assistant", "content": response, "df": final_df})
