@@ -14,7 +14,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.markdown('<p class="main-title">💻 보상나라 AI 점장님 실시간 상담</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-title">장부의 팩트만 정직하게 안내합니다. 확인되지 않은 정보는 절대 지어내지 않습니다. ✨</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">정직이 최우선! 보상나라는 실제 보유 중인 재고만 투명하게 안내합니다. ✨</p>', unsafe_allow_html=True)
 
 # --- [2] 데이터 로드 ---
 @st.cache_data
@@ -23,6 +23,7 @@ def load_inventory():
     try:
         df = pd.read_excel(file_name, sheet_name='Sheet1')
         df.columns = [str(c).strip() for c in df.columns]
+        # 숫자 데이터 정제
         df['판매가'] = pd.to_numeric(df['판매가'], errors='coerce').fillna(0)
         df['판매가_표기'] = df['판매가'].apply(lambda x: "{:,}원".format(int(x)))
         if '배터리' in df.columns:
@@ -34,15 +35,15 @@ def load_inventory():
 
 df = load_inventory()
 
-# --- [3] 세션 관리 ---
+# --- [3] 세션 관리 (맥락 유지의 핵심) ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "last_category" not in st.session_state:
-    st.session_state.last_category = "아이폰"
+    st.session_state.last_category = "맥북"
 if "is_in_consult" not in st.session_state:
     st.session_state.is_in_consult = False
 
-# --- [4] 사이드바 (등급 기준 원문) ---
+# --- [4] 사이드바 (등급 기준) ---
 with st.sidebar:
     st.header("✨ 보상나라 등급 기준")
     st.markdown("""
@@ -53,7 +54,7 @@ with st.sidebar:
 - **진열상품**: 매장 전시용. 배터리 효율 최상 🚀
     """)
 
-# 이전 대화 출력
+# 이전 대화 출력 (표는 항상 펼침)
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -69,12 +70,17 @@ if user_input := st.chat_input("질문을 입력하세요!"):
     with st.chat_message("assistant"):
         q_clean = user_input.replace(" ", "").lower()
         
+        # 키워드 체계 (보강됨)
         grade_kw = ["등급", "기준", "상태"]
         laptop_kw = ["맥북", "노트북", "컴퓨터", "랩탑"]
         phone_kw = ["폰", "아이폰", "갤럭시", "핸드폰"]
         pad_kw = ["패드", "아이패드", "태블릿"]
         action_kw = ["추천", "얼마", "재고", "저렴", "싼", "가성비", "가격", "있어", "있나요"]
-        context_kw = ["편집", "용도", "사용", "적합", "응", "더", "무게", "배터리", "인강", "학교", "사진", "카메라", "촬영", "영상", "가능", "돼", "어때", "크기", "화면", "인치", "차이", "장점"]
+        context_kw = [
+            "편집", "용도", "사용", "적합", "응", "더", "무게", "배터리", "인강", "학교", 
+            "사진", "카메라", "촬영", "영상", "가능", "돼", "어때", "크기", "화면", "인치", 
+            "차이", "장점", "게임", "게이밍", "성능", "속도", "렉", "빠른", "그래픽", "작업", "색상", "컬러"
+        ]
 
         is_grade_query = any(kw in q_clean for kw in grade_kw) and not any(kw in q_clean for kw in (action_kw + context_kw))
         is_recommend_talk = any(kw in q_clean for kw in (laptop_kw + phone_kw + pad_kw + action_kw)) or \
@@ -88,17 +94,19 @@ if user_input := st.chat_input("질문을 입력하세요!"):
         elif is_recommend_talk:
             st.session_state.is_in_consult = True
             with st.spinner("장부 확인 중..."):
+                # 카테고리 업데이트
                 if any(kw in q_clean for kw in laptop_kw): st.session_state.last_category = "맥북"
                 elif any(kw in q_clean for kw in phone_kw): st.session_state.last_category = "아이폰"
                 elif any(kw in q_clean for kw in pad_kw): st.session_state.last_category = "아이패드"
                 
                 cat_df = df[df['카테고리'].str.contains(st.session_state.last_category, na=False)].copy()
                 
-                # 1차 필터링 로직
-                if any(kw in q_clean for kw in ["더", "큰", "대화면"]):
+                # 검색 로직 (고성능/가성비/대화면 대응)
+                if any(kw in q_clean for kw in ["게임", "성능", "그래픽", "작업"]):
+                    stock_result = cat_df.sort_values(by='판매가', ascending=False).head(2)
+                elif any(kw in q_clean for kw in ["더", "큰", "대화면"]):
                     stock_result = cat_df[cat_df['상품명 (정제형)'].str.contains("12.9|16|15|14|pro", case=False, na=False)].head(2)
-                    if stock_result.empty:
-                        stock_result = cat_df.sort_values(by='판매가', ascending=False).head(2)
+                    if stock_result.empty: stock_result = cat_df.sort_values(by='판매가', ascending=False).head(2)
                 elif any(kw in q_clean for kw in ["저렴", "싼", "가성비"]):
                     stock_result = cat_df.sort_values(by='판매가').head(2)
                 else:
@@ -110,16 +118,16 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                 
-                # [강화된 정직성 지침]
+                # [점장님 지능형 팩트 체크 지침]
                 sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 
 
-                [지능형 답변 가이드라인]
-                1. 숫자 거짓말 금지: 무게(kg), 포트 개수, 배터리 시간(시간) 등 장부 엑셀에 명시되지 않은 '구체적인 숫자'는 절대 지어내지 마.
-                2. 비교 시 형용사 사용: 장부에 정보가 없는 스펙을 비교할 때는 "에어가 더 가볍다", "프로가 성능이 더 강력하다" 같이 검증된 상식 선에서 형용사로만 설명해.
-                3. 재고 기반 상담: 답변의 중심은 언제나 오늘의 실제 재고여야 해. 재고가 없는 모델의 장점을 길게 늘어놓지 마.
-                4. 빈말 금지: 예약이나 입고 알림 약속은 시스템상 불가능하므로 절대 언급 금지.
-                5. 데이터 노출 금지: '카테고리', '상세모델' 필드명 노출 금지. '상품명 (정제형)'만 사용.
-                6. 가독성: 줄바꿈과 이모지를 적절히 사용하여 읽기 쉽게 답해.
+                [상담 원칙: 정직과 실재고 중심]
+                1. 팩트 준수: '무게', '포트 개수', '색상', '정확한 인치' 등 장부 엑셀 데이터에 명시되지 않은 정보는 절대 숫자로 지어내지 마. 
+                2. 모르는 정보 대응: 색상이나 상세 스펙을 물어볼 때 장부에 없다면 "색상은 실시간 입고 상황에 따라 다르니 채팅 주시면 실물 사진을 바로 찍어드리겠다"라고 정직하게 안내해.
+                3. 빈말 금지: 시스템상 불가능한 '입고 알림', '예약' 약속은 절대 하지 마. 
+                4. 비교 시 형용사 사용: 장부에 정보가 없는 스펙 비교는 "에어가 더 가볍다", "프로가 더 성능이 좋다" 정도로만 상식선에서 답해.
+                5. 데이터 노출 금지: '카테고리', '상세모델' 필드명은 언급하지 마. '상품명 (정제형)'만 써.
+                6. 꼬리 질문 대응: 이전 대화를 기억하고 맥락에 맞게 답해. 답변은 친절하게 줄바꿈과 이모지를 써서 작성해.
 
                 [오늘의 실제 장부 데이터]: {stock_list}
                 [상담 카테고리]: {st.session_state.last_category}"""
@@ -128,7 +136,7 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                     model="llama-3.1-8b-instant",
                     messages=[{"role": "system", "content": sys_prompt}] + 
                              [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-5:]],
-                    temperature=0.0 # 창의성을 완전히 배제하고 팩트에만 집중
+                    temperature=0.0 # 거짓말 방지를 위한 최저 온도
                 ).choices[0].message.content
                 
                 response = res.replace("\n", "  \n")
@@ -136,7 +144,6 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 
         else:
             response = """찾으시는 제품이 있으신가요? 용도와 함께 말씀해 주시면 장부를 바로 확인해 드릴게요! 😊
-            
 **💡 이렇게 물어보시면 빨라요!**
 - "인강용 **저렴한 맥북** 있어?" 💻
 - "**아이폰 15 Pro** 재고 확인해줘" 📸
