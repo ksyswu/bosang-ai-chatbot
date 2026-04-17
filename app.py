@@ -53,12 +53,12 @@ with st.sidebar:
 - **진열상품**: 매장 전시용. 배터리 효율 최상 🚀
     """)
 
-# 이전 대화 출력
+# 이전 대화 출력 (표 기본 펼침 상태 유지)
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if "df" in msg and msg["df"] is not None:
-            with st.expander("📊 추천 모델 상세 사양 확인하기"):
+            with st.expander("📊 추천 모델 상세 사양 확인하기", expanded=True):
                 st.table(msg["df"])
 
 # --- [5] 메인 상담 로직 ---
@@ -81,7 +81,7 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                             (st.session_state.is_in_consult and any(kw in q_clean for kw in context_kw))
 
         if is_grade_query:
-            response = "보상나라 등급은 S(신품급), A(깔끔함), B(생활기스), 가성비(외관흔적), 진열상품(전시용)으로 나뉩니다. 어떤 모델을 찾으시나요?"
+            response = "보상나라 등급은 S(신품급), A(깔끔함), B(생활기스), 가성비(외관흔적), 진열상품(전시용)으로 나뉩니다. 😊\n\n어떤 모델을 찾으시나요?"
             st.session_state.is_in_consult = False
             final_df = None
             
@@ -104,16 +104,14 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 stock_list = stock_result.to_dict('records')
                 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-                # [수정 포인트: 영업 마인드 주입]
                 sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 
-                고객이 찾는 모델이 장부에 없을 때 대응하는 능력이 탁월해.
 
-                [영업 원칙 - 필수]
-                1. 아쉬움 공감 후 매끄러운 제안: "아쉽게도 해당 모델은 장부에 없네요"라고 말한 뒤, 바로 "하지만 지금 바로 가져가실 수 있는 최신 성능의 이 모델이 사실 가성비나 활용도 면에서 훨씬 뛰어납니다"라고 제안해.
-                2. 구매 가치 강조: 기기의 스펙만 나열하지 말고, "티타늄이라 정말 가볍다", "배터리 100%라 새거랑 다름없다" 등 손님이 매력을 느낄 포인트를 강조해.
-                3. 중복 질문 금지: 이미 용도를 말했다면 다시 묻지 마.
-                4. 가격 환각 방지: 가격은 표에 있으니 텍스트로 임의 숫자를 지어내지 마.
-                5. 말투: 간결하면서도 확신에 찬 전문가의 어투를 써.
+                [상담 원칙]
+                1. 가독성 강화: 답변 중간에 줄바꿈을 적절히 섞어서 가독성을 높여.
+                2. 적절한 이모지 사용: 문맥에 맞게 핵심적인 곳에 이모지(📱, ✨, ✅ 등)를 한두 개 섞어서 친절하게 답해.
+                3. 영업 마인드: 찾는 모델이 없으면 아쉬움을 표하고, 현재 재고 중 가장 매력적인 대안을 확신 있게 제안해.
+                4. 중복 질문 금지: 이미 용도를 말했다면 다시 묻지 마.
+                5. 가격 환각 방지: 가격은 표에 있으니 텍스트로 임의 숫자를 지어내지 마.
 
                 [오늘의 실제 재고]: {stock_list}"""
 
@@ -139,7 +137,8 @@ if user_input := st.chat_input("질문을 입력하세요!"):
 
         st.markdown(response)
         if final_df is not None:
-            with st.expander("📊 추천 모델 상세 사양 확인하기"):
+            # [수정 포인트: expanded=True 설정으로 표가 기본으로 펼쳐짐]
+            with st.expander("📊 추천 모델 상세 사양 확인하기", expanded=True):
                 st.table(final_df)
             st.session_state.messages.append({"role": "assistant", "content": response, "df": final_df})
         else:
