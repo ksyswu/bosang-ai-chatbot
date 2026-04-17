@@ -42,15 +42,15 @@ if "last_category" not in st.session_state:
 if "is_in_consult" not in st.session_state:
     st.session_state.is_in_consult = False
 
-# --- [4] 사이드바 ---
+# --- [4] 사이드바 (등급 기준) ---
 with st.sidebar:
     st.header("✨ 보상나라 등급 기준")
     st.markdown("""
 - **S 등급**: 신품급! 선물용 강추! 🎁
 - **A 등급**: 깔끔함. 가성비 최고 ✨
 - **B 등급**: 생활 기스 있음 💯
-- **가성비**: 실속파용 💪
-- **진열상품**: 배터리 최상 🚀
+- **가성비**: 실속파용 (기스/찍힘 있음) 💪
+- **진열상품**: 매장 전시용. 배터리 최상 🚀
     """)
 
 # 대화 로그 출력
@@ -75,72 +75,73 @@ if user_input := st.chat_input("질문을 입력하세요!"):
         phone_kw = ["폰", "아이폰", "갤럭시", "핸드폰"]
         pad_kw = ["패드", "아이패드", "태블릿"]
         watch_kw = ["워치", "시계", "애플워치"]
-        action_kw = ["추천", "얼마", "재고", "저렴", "싼", "가성비", "가격", "있어", "있나요", "춫ㄴ"]
-        context_kw = ["편집", "용도", "사용", "적합", "배터리", "인강", "학교", "성능", "게임", "더"]
+        action_kw = ["추천", "얼마", "재고", "저렴", "싼", "가성비", "가격", "있어", "있나요"]
+        context_kw = ["편집", "용도", "사용", "적합", "배터리", "인강", "학교", "성능", "게임", "프로그래밍", "개발", "더"]
 
         is_grade_query = any(kw in q_clean for kw in grade_kw) and not any(kw in q_clean for kw in (action_kw + context_kw))
         is_recommend_talk = any(kw in q_clean for kw in (laptop_kw + phone_kw + pad_kw + watch_kw + action_kw)) or \
                             (st.session_state.is_in_consult and any(kw in q_clean for kw in context_kw))
 
         if is_grade_query:
-            response = "보상나라의 등급 기준은 S(신품급), A(깔끔함), B(생활기스), 가성비, 진열상품으로 나뉩니다. 상세 내용은 사이드바를 참고해주세요! 😊"
+            response = "보상나라의 등급 기준은 S(신품급), A(깔끔함), B(생활기스), 가성비, 진열상품으로 나뉩니다. 자세한 내용은 왼쪽 사이드바를 확인해 주세요! 😊"
             st.session_state.is_in_consult = False
             final_df = None
 
         elif is_recommend_talk:
             st.session_state.is_in_consult = True
             with st.spinner("장부 확인 중..."):
+                # 카테고리 판별
                 if any(kw in q_clean for kw in watch_kw): current_cat = "워치"
                 elif any(kw in q_clean for kw in pad_kw): current_cat = "아이패드"
                 elif any(kw in q_clean for kw in laptop_kw): current_cat = "맥북"
                 elif any(kw in q_clean for kw in phone_kw): current_cat = "아이폰"
                 else: current_cat = st.session_state.last_category
                 
-                # 재고 필터링
+                # 재고 필터링 및 최저가 파악
                 full_cat_df = df[df['카테고리'].str.contains(current_cat, na=False)].sort_values(by='판매가')
                 is_alternative = False
-                lowest_price_str = ""
+                abs_lowest_price = ""
 
                 if full_cat_df.empty:
-                    # 해당 카테고리 재고가 아예 없으면 아이폰으로 선회
                     st.session_state.last_category = "아이폰"
-                    stock_result = df[df['카테고리'].str.contains("아이폰", na=False)].head(2)
+                    full_cat_df = df[df['카테고리'].str.contains("아이폰", na=False)].sort_values(by='판매가')
                     is_alternative = True
-                else:
-                    st.session_state.last_category = current_cat
-                    lowest_price_str = full_cat_df['판매가_표기'].iloc[0]
-                    # '더 저렴한 것' 요청 여부와 상관없이 항상 가격순 상위 2개 추출
-                    stock_result = full_cat_df.head(2)
-
+                
+                st.session_state.last_category = current_cat
+                abs_lowest_price = full_cat_df['판매가_표기'].iloc[0] if not full_cat_df.empty else ""
+                stock_result = full_cat_df.head(2)
                 stock_list = stock_result.to_dict('records')
+
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                 
-                # [점장님 최종 영업 지침]
-                sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 
-                
-                [상담 및 영업 지침]
-                1. 가격 논리: 고객이 '더 싼 거 없냐'고 물었을 때, 지금 추천한 가격이 장부 내 최저가({lowest_price_str})라면 "이게 현재 저희 매장에서 가장 저렴한 최저가 재고입니다"라고 당당하게 팔아. 딴소리 절대 금지.
-                2. 데이터 용어 제거: '카테고리:', '상세모델:', '상품명(정제형):' 같은 시스템 필드명을 답변에 절대 노출하지 마. 자연스럽게 모델명과 특징만 말해.
-                3. 추천 시 가이드 생략: 이미 제품을 추천할 때는 "💡 이렇게 물어보세요" 가이드를 절대 쓰지 마. 구매 확신 멘트(예: "금방 나갈 제품입니다")로 마무리해.
-                4. 정확한 정보: 장부에 있는 가격과 등급만 말하고, 네가 모르는 숫자(무게, 정확한 사진 전송 약속 등)는 지어내지 마.
-                
+                # [점장님 최종 훈육 지침]
+                sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 손님의 질문 의도를 정확히 파악해서 장사꾼답게 대답해.
+
+                [절대 준수 지침]
+                1. 최저가 논리: 손님이 '더 싼 것'을 찾을 때, 현재 추천 모델 가격이 매장 최저가({abs_lowest_price})와 같다면 "지금 보시는 제품이 저희 매장 전체에서 가장 저렴한 최저가 모델입니다"라고 확신을 줘. 
+                2. 용도별 차별화: 프로그래밍, 영상편집, 학교 등 용도에 맞춰 '램 용량', '휴대성', '가성비' 등 세일즈 포인트를 다르게 짚어줘. 앵무새처럼 같은 말 반복 금지.
+                3. 시스템 용어 노출 금지: '카테고리:', '상세모델:', '상품명(정제형):' 같은 단어는 답변 텍스트에 절대 쓰지 마. 자연스러운 문장으로만 말해.
+                4. 추천 시 가이드 생략: 제품 추천이 나갈 때는 "💡 이렇게 물어보세요" 가이드를 절대 출력하지 마.
+                5. 정직한 영업: 장부에 없는 정보(램 업그레이드 여부, 입고 예정일, 실시간 사진 전송 등)를 지어내지 마.
+
                 [오늘의 실제 재고 데이터]: {stock_list}
+                [매장 내 최저가 정보]: {abs_lowest_price}
                 [대안 추천 상태]: {is_alternative}"""
 
                 res = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[{"role": "system", "content": sys_prompt}] + 
                              [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-3:]],
-                    temperature=0.0
+                    temperature=0.2 # 약간의 유연성을 주어 앵무새 답변 방지
                 ).choices[0].message.content
                 
                 response = res.replace("\n", "  \n")
                 final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리_표기']].reset_index(drop=True)
                 
         else:
-            # 못 알아들었을 때만 가이드 노출
+            # 초기 상태 또는 이해 불능 시에만 가이드 노출
             response = """반갑습니다! 보상나라 점장입니다. 😊  
-어떤 기기를 찾으시나요? 장부에서 가장 상태 좋은 녀석으로 골라드릴게요!
+어떤 기기를 찾으시나요? 장부에서 가장 상태 좋고 저렴한 녀석으로 골라드릴게요!
 
 **💡 점장님에게 이렇게 물어보시면 빨라요!**
 - "인강용 **저렴한 아이패드** 추천해줘" 💻
