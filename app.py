@@ -123,7 +123,7 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 ).choices[0].message.content
                 
                 response = res.replace("\n", "  \n")
-                final_df = stock_result[['상품명', '등급', '판매가', '배터리']].reset_index(drop=True) if not stock_result.empty else None
+                final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리_표기']]].reset_index(drop=True) if not stock_result.empty else None
 
         st.markdown(response)
         if final_df is not None:
