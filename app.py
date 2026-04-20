@@ -86,6 +86,7 @@ if user_input := st.chat_input("질문을 입력하세요!"):
         watch_kw = ["워치", "시계", "애플워치"]
         context_kw = ["편집", "용도", "사용", "적합", "인강", "학교", "성능", "게임", "프로그래밍", "개발", "그림", "드로잉", "가능", "돼", "될까"]
 
+        # A. 등급 기준 질문
         if any(kw in q_clean for kw in grade_kw) and not any(kw in q_clean for kw in (laptop_kw + phone_kw + pad_kw + watch_kw + context_kw)):
             response = """보상나라의 등급 기준을 안내해 드립니다! 😊
 
@@ -97,6 +98,7 @@ if user_input := st.chat_input("질문을 입력하세요!"):
             st.session_state.is_in_consult = False
             final_df = None
 
+        # B. 제품 추천 상담 (양식 고도화)
         elif any(kw in q_clean for kw in (laptop_kw + phone_kw + pad_kw + watch_kw + context_kw)):
             st.session_state.is_in_consult = True
             with st.spinner("장부 확인 중..."):
@@ -113,14 +115,26 @@ if user_input := st.chat_input("질문을 입력하세요!"):
 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                 
-                sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 
+                sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 아래 양식을 엄격히 지켜서 답변해.
+
+                [답변 양식]
+                고객님이 말씀하신 용도에 딱 맞는 보상나라 베스트 매물을 골라봤습니다! (또는 재고가 없을 시 적절한 인사말)
                 
-                [상담 원칙]
-                1. 단일 모델 원픽 추천: 추천할 때는 무조건 질문에 가장 적합한 '모델 하나'만 골라서 집중적으로 설명해. 여러 개를 나열하면 손님이 헷갈려해.
-                2. 표현 주의: '녀석'이라는 표현은 절대 사용하지 마. 대신 '모델', '제품', '기기'라고 정중하게 지칭해.
-                3. 상향판매 & 논리: 추천한 모델보다 더 좋은 성능이 필요한 질문이 들어오면 재고 내 상위 모델을 비교 제안해. 단, 답변은 간결하고 명확하게 유지해.
-                4. 데이터 엄수: 재고 데이터({stock_list})에 없는 스펙이나 모델은 절대 지어내지 마.
-                5. 가독성: 큰 제목(#) 사용 금지. 굵게(**)와 줄바꿈을 활용하고, 답변이 너무 길어지지 않게 핵심만 말해."""
+                📍 모델명 : [정확한 모델명]
+                ✨ 등 급 : [등급]
+                💰 판매가 : [판매가]
+                🔋 배터리 상태 : [배터리 정보]
+                💬 점장 큐레이션 : "[전문가적인 추천 이유를 1~2문장으로 요약]"
+
+                보상나라는 전문가가 검수를 마친 안전한 제품만 판매합니다.
+
+                [영업 지침]
+                1. 단일 추천: 여러 개 나열하지 말고 재고({stock_list}) 중 가장 적합한 '하나'만 위 양식으로 추천해.
+                2. 상향 제안: 만약 손님이 찾는 모델보다 더 나은 대안이 있다면 양식에 맞춰 그 모델을 추천하고 이유를 설명해.
+                3. 금지어: '녀석'이라는 표현 절대 금지. 정중하고 전문적인 톤 유지.
+                4. 데이터 엄수: 장부에 없는 사양은 절대 지어내지 마.
+                5. 가이드 제외: 추천 시에는 하단 질문 가이드 리스트를 붙이지 마.
+                """
 
                 res = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
@@ -132,6 +146,7 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 response = res.replace("\n", "  \n")
                 final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리_표기']].reset_index(drop=True)
                 
+        # C. 이해 불가 (가이드 노출)
         else:
             response = f"죄송합니다, 손님! 질문을 정확히 이해하지 못했어요. 아래 예시처럼 말씀해주시면 장부에서 바로 찾아드릴게요!  \n{guide_text}"
             st.session_state.is_in_consult = False
