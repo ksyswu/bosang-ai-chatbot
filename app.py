@@ -34,13 +34,11 @@ def load_inventory():
 
 df = load_inventory()
 
-# --- [3] 세션 관리 및 사이드바 ---
+# --- [3] 세션 관리 및 사이드바 (등급 안내 상시 노출) ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "last_category" not in st.session_state:
     st.session_state.last_category = "아이폰"
-if "is_in_consult" not in st.session_state:
-    st.session_state.is_in_consult = False
 
 with st.sidebar:
     st.header("✨ 보상나라 등급 기준")
@@ -52,6 +50,7 @@ with st.sidebar:
 - **진열상품**: 매장 전시용. 배터리 최상 🚀
     """)
 
+# 못 알아들었을 때만 보여줄 가이드 리스트
 guide_text = """
 **💡 이렇게 물어보시면 빨라요!**
 - "인강용 **저렴한 아이패드** 추천해줘"
@@ -66,6 +65,7 @@ for msg in st.session_state.messages:
             with st.expander("📊 추천 모델 상세 사양 확인하기", expanded=True):
                 st.table(msg["df"])
 
+# [최초 접속 시 가이드 노출]
 if not st.session_state.messages:
     welcome_msg = f"반갑습니다! 보상나라 점장입니다. 😊 어떤 기기를 찾으시나요? 장부에서 상태 좋고 가격 착한 제품으로 딱 골라드릴게요!  \n{guide_text}"
     st.session_state.messages.append({"role": "assistant", "content": welcome_msg, "df": None})
@@ -79,14 +79,15 @@ if user_input := st.chat_input("질문을 입력하세요!"):
     with st.chat_message("assistant"):
         q_clean = user_input.replace(" ", "").lower()
         
+        # 키워드 확장 (상담 인식률 강화)
         grade_kw = ["등급", "상태", "기준", "급"]
         laptop_kw = ["맥북", "노트북", "컴퓨터", "프로", "에어"]
         phone_kw = ["폰", "아이폰", "갤럭시"]
         pad_kw = ["패드", "아이패드", "태블릿"]
         watch_kw = ["워치", "시계", "애플워치"]
-        context_kw = ["편집", "용도", "사용", "적합", "인강", "학교", "성능", "게임", "프로그래밍", "개발", "그림", "드로잉", "가능", "돼", "될까"]
+        context_kw = ["편집", "용도", "사용", "적합", "인강", "학교", "성능", "게임", "프로그래밍", "개발", "그림", "드로잉", "가능", "돼", "될까", "추천", "저렴", "싼", "가격", "얼마"]
 
-        # A. 등급 기준 질문
+        # A. 등급 기준 질문 (가이드 제외)
         if any(kw in q_clean for kw in grade_kw) and not any(kw in q_clean for kw in (laptop_kw + phone_kw + pad_kw + watch_kw + context_kw)):
             response = """보상나라의 등급 기준을 안내해 드립니다! 😊
 
@@ -95,12 +96,10 @@ if user_input := st.chat_input("질문을 입력하세요!"):
 **B 등급**: 미세 생활 기스 (실속형)  
 **가성비**: 기능 정상, 외관 기스 있음  
 **진열상품**: 전시 모델, 배터리 상태 최상"""
-            st.session_state.is_in_consult = False
             final_df = None
 
-        # B. 제품 추천 상담 (양식 고도화)
+        # B. 제품 추천 상담 (가이드 제외 / 논리 강화)
         elif any(kw in q_clean for kw in (laptop_kw + phone_kw + pad_kw + watch_kw + context_kw)):
-            st.session_state.is_in_consult = True
             with st.spinner("장부 확인 중..."):
                 if any(kw in q_clean for kw in watch_kw): current_cat = "워치"
                 elif any(kw in q_clean for kw in pad_kw): current_cat = "아이패드"
@@ -108,9 +107,17 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 elif any(kw in q_clean for kw in phone_kw): current_cat = "아이폰"
                 else: current_cat = st.session_state.last_category
                 
-                full_cat_df = df[df['카테고리'].str.contains(current_cat, na=False)].sort_values(by='판매가')
+                # [보완] 가격 관련 질문이면 저렴한 순으로 데이터 정렬
+                is_price_query = any(kw in q_clean for kw in ["저렴", "싼", "가격", "얼마"])
+                filtered_df = df[df['카테고리'].str.contains(current_cat, na=False)]
+                
+                if is_price_query:
+                    filtered_df = filtered_df.sort_values(by='판매가', ascending=True)
+                else:
+                    filtered_df = filtered_df.sort_values(by='판매가', ascending=False) # 기본은 좋은 성능(높은가격) 우선
+
                 st.session_state.last_category = current_cat
-                stock_result = full_cat_df.head(3) 
+                stock_result = filtered_df.head(3)
                 stock_list = stock_result.to_dict('records')
 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -118,22 +125,23 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 sys_prompt = f"""너는 보상나라의 베테랑 점장이야. 아래 양식을 엄격히 지켜서 답변해.
 
                 [답변 양식]
-                고객님이 말씀하신 용도에 딱 맞는 보상나라 베스트 매물을 골라봤습니다! (또는 재고가 없을 시 적절한 인사말)
+                고객님이 말씀하신 용도에 딱 맞는 보상나라 베스트 매물을 골라봤습니다! (또는 상황에 맞는 인사말)
                 
                 📍 모델명 : [정확한 모델명]
                 ✨ 등 급 : [등급]
                 💰 판매가 : [판매가]
                 🔋 배터리 상태 : [배터리 정보]
-                💬 점장 큐레이션 : "[전문가적인 추천 이유를 1~2문장으로 요약]"
+                💬 점장 큐레이션 : "[전문가적인 추천 이유 1~2문장]"
 
                 보상나라는 전문가가 검수를 마친 안전한 제품만 판매합니다.
 
                 [영업 지침]
-                1. 단일 추천: 여러 개 나열하지 말고 재고({stock_list}) 중 가장 적합한 '하나'만 위 양식으로 추천해.
-                2. 상향 제안: 만약 손님이 찾는 모델보다 더 나은 대안이 있다면 양식에 맞춰 그 모델을 추천하고 이유를 설명해.
-                3. 금지어: '녀석'이라는 표현 절대 금지. 정중하고 전문적인 톤 유지.
-                4. 데이터 엄수: 장부에 없는 사양은 절대 지어내지 마.
-                5. 가이드 제외: 추천 시에는 하단 질문 가이드 리스트를 붙이지 마.
+                1. 단일 모델 원픽: 재고 리스트({stock_list}) 중 질문에 가장 적합한 '하나'의 모델을 주인공으로 세워 양식에 맞춰 추천해. 
+                2. 일치성: 텍스트로 추천한 모델 정보는 반드시 리스트에 있는 데이터와 100% 일치해야 해.
+                3. 상향판매: 손님의 용도에 현재 추천 모델이 부족하면, 리스트 내 더 좋은 모델을 논리적으로 대안 제시해.
+                4. 모순 방지: 16G가 좋다면서 32G를 사라는 식의 논리 오류 금지. 
+                5. 표현 주의: '녀석' 사용 금지. DB 필드명(판매가_표기 등) 노출 금지. 
+                6. 팩트 체크: 장부에 없는 모델(아이폰 18 등)은 없다고 솔직히 말하고 대안을 추천해.
                 """
 
                 res = client.chat.completions.create(
@@ -146,10 +154,9 @@ if user_input := st.chat_input("질문을 입력하세요!"):
                 response = res.replace("\n", "  \n")
                 final_df = stock_result[['상품명 (정제형)', '등급', '판매가_표기', '배터리_표기']].reset_index(drop=True)
                 
-        # C. 이해 불가 (가이드 노출)
+        # C. 질문 미인지 시 (가이드 노출)
         else:
-            response = f"죄송합니다, 손님! 질문을 정확히 이해하지 못했어요. 아래 예시처럼 말씀해주시면 장부에서 바로 찾아드릴게요!  \n{guide_text}"
-            st.session_state.is_in_consult = False
+            response = f"죄송합니다, 손님! 질문을 정확히 이해하지 못했어요. 아래 예시처럼 말씀해주시면 바로 찾아드릴게요!  \n{guide_text}"
             final_df = None
 
         st.markdown(response)
